@@ -47,7 +47,7 @@ final class UpdateService: ObservableObject {
 
             // Find DMG asset
             if let dmgAsset = release.assets.first(where: { $0.name.hasSuffix(".dmg") }) {
-                downloadURL = URL(string: dmgAsset.browserDownloadURL)
+                downloadURL = URL(string: dmgAsset.browserDownloadUrl)
             }
 
             // Compare versions (also check if user skipped this version)
@@ -181,7 +181,7 @@ private struct GitHubRelease: Codable {
 
 private struct GitHubAsset: Codable {
     let name: String
-    let browserDownloadURL: String
+    let browserDownloadUrl: String
     let size: Int
     let contentType: String
 }

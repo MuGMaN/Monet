@@ -1,0 +1,454 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		E8000001299A0001000000A1 /* MonetApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8000002299A0001000000A1 /* MonetApp.swift */; };
+		E8000003299A0001000000A1 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8000004299A0001000000A1 /* Constants.swift */; };
+		E8000005299A0001000000A1 /* Credentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8000006299A0001000000A1 /* Credentials.swift */; };
+		E8000007299A0001000000A1 /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8000008299A0001000000A1 /* Account.swift */; };
+		E8000009299A0001000000A1 /* UsageData.swift in Sources */ = {isa = PBXBuildFile; fileRef = E800000A299A0001000000A1 /* UsageData.swift */; };
+		E800000B299A0001000000A1 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E800000C299A0001000000A1 /* KeychainService.swift */; };
+		E800000D299A0001000000A1 /* UsageAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E800000E299A0001000000A1 /* UsageAPIService.swift */; };
+		E800000F299A0001000000A1 /* AuthenticationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8000010299A0001000000A1 /* AuthenticationService.swift */; };
+		E8000011299A0001000000A1 /* UsageViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8000012299A0001000000A1 /* UsageViewModel.swift */; };
+		E8000013299A0001000000A1 /* VisualEffectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8000014299A0001000000A1 /* VisualEffectView.swift */; };
+		E8000015299A0001000000A1 /* ProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8000016299A0001000000A1 /* ProgressBar.swift */; };
+		E8000017299A0001000000A1 /* UsageRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8000018299A0001000000A1 /* UsageRow.swift */; };
+		E8000019299A0001000000A1 /* CircularProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = E800001A299A0001000000A1 /* CircularProgress.swift */; };
+		E800001B299A0001000000A1 /* MenuBarIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = E800001C299A0001000000A1 /* MenuBarIcon.swift */; };
+		E800001D299A0001000000A1 /* UsagePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E800001E299A0001000000A1 /* UsagePanel.swift */; };
+		0C479DF877A64636ADA5A438 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68D33A8DBA464E11B0D438A6 /* SettingsView.swift */; };
+		4EF09AD19E2F4A919EECCF0D /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02CB77FE1E244FAE9CD304A7 /* SettingsWindowController.swift */; };
+		E800001F299A0001000000A1 /* TimeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8000020299A0001000000A1 /* TimeFormatter.swift */; };
+		E8000021299A0001000000A1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E8000022299A0001000000A1 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		E8000000299A0001000000A1 /* Monet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Monet.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E8000002299A0001000000A1 /* MonetApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonetApp.swift; sourceTree = "<group>"; };
+		E8000004299A0001000000A1 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
+		E8000006299A0001000000A1 /* Credentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Credentials.swift; sourceTree = "<group>"; };
+		E8000008299A0001000000A1 /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
+		E800000A299A0001000000A1 /* UsageData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageData.swift; sourceTree = "<group>"; };
+		E800000C299A0001000000A1 /* KeychainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainService.swift; sourceTree = "<group>"; };
+		E800000E299A0001000000A1 /* UsageAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageAPIService.swift; sourceTree = "<group>"; };
+		E8000010299A0001000000A1 /* AuthenticationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationService.swift; sourceTree = "<group>"; };
+		E8000012299A0001000000A1 /* UsageViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageViewModel.swift; sourceTree = "<group>"; };
+		E8000014299A0001000000A1 /* VisualEffectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEffectView.swift; sourceTree = "<group>"; };
+		E8000016299A0001000000A1 /* ProgressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressBar.swift; sourceTree = "<group>"; };
+		E8000018299A0001000000A1 /* UsageRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageRow.swift; sourceTree = "<group>"; };
+		E800001A299A0001000000A1 /* CircularProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CircularProgress.swift; sourceTree = "<group>"; };
+		E800001C299A0001000000A1 /* MenuBarIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarIcon.swift; sourceTree = "<group>"; };
+		E800001E299A0001000000A1 /* UsagePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsagePanel.swift; sourceTree = "<group>"; };
+		68D33A8DBA464E11B0D438A6 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		02CB77FE1E244FAE9CD304A7 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
+		E8000020299A0001000000A1 /* TimeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeFormatter.swift; sourceTree = "<group>"; };
+		E8000022299A0001000000A1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		E8000024299A0001000000A1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		E8000025299A0001000000A1 /* Monet.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Monet.entitlements; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		E8FFFFF8299A0001000000A1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		E8FFFFF2299A0001000000A1 = {
+			isa = PBXGroup;
+			children = (
+				E8FFFFF4299A0001000000A1 /* Monet */,
+				E8FFFFF3299A0001000000A1 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		E8FFFFF3299A0001000000A1 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				E8000000299A0001000000A1 /* Monet.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		E8FFFFF4299A0001000000A1 /* Monet */ = {
+			isa = PBXGroup;
+			children = (
+				E8000002299A0001000000A1 /* MonetApp.swift */,
+				E8FFFFF5299A0001000000A1 /* Models */,
+				E8FFFFF6299A0001000000A1 /* Services */,
+				E8FFFFF7299A0001000000A1 /* ViewModels */,
+				E8FFFFFA299A0001000000A1 /* Views */,
+				E8FFFFFB299A0001000000A1 /* Utilities */,
+				E8FFFFFC299A0001000000A1 /* Resources */,
+			);
+			path = Monet;
+			sourceTree = "<group>";
+		};
+		E8FFFFF5299A0001000000A1 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				E8000006299A0001000000A1 /* Credentials.swift */,
+				E8000008299A0001000000A1 /* Account.swift */,
+				E800000A299A0001000000A1 /* UsageData.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		E8FFFFF6299A0001000000A1 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				E800000C299A0001000000A1 /* KeychainService.swift */,
+				E800000E299A0001000000A1 /* UsageAPIService.swift */,
+				E8000010299A0001000000A1 /* AuthenticationService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		E8FFFFF7299A0001000000A1 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				E8000012299A0001000000A1 /* UsageViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		E8FFFFFA299A0001000000A1 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				E800001C299A0001000000A1 /* MenuBarIcon.swift */,
+				E800001E299A0001000000A1 /* UsagePanel.swift */,
+				68D33A8DBA464E11B0D438A6 /* SettingsView.swift */,
+				02CB77FE1E244FAE9CD304A7 /* SettingsWindowController.swift */,
+				E8FFFFFD299A0001000000A1 /* Components */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		E8FFFFFD299A0001000000A1 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				E8000014299A0001000000A1 /* VisualEffectView.swift */,
+				E8000016299A0001000000A1 /* ProgressBar.swift */,
+				E8000018299A0001000000A1 /* UsageRow.swift */,
+				E800001A299A0001000000A1 /* CircularProgress.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		E8FFFFFB299A0001000000A1 /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				E8000004299A0001000000A1 /* Constants.swift */,
+				E8000020299A0001000000A1 /* TimeFormatter.swift */,
+			);
+			path = Utilities;
+			sourceTree = "<group>";
+		};
+		E8FFFFFC299A0001000000A1 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				E8000022299A0001000000A1 /* Assets.xcassets */,
+				E8000024299A0001000000A1 /* Info.plist */,
+				E8000025299A0001000000A1 /* Monet.entitlements */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E8FFFFFE299A0001000000A1 /* Monet */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E800002A299A0001000000A1 /* Build configuration list for PBXNativeTarget "Monet" */;
+			buildPhases = (
+				E8FFFFF9299A0001000000A1 /* Sources */,
+				E8FFFFF8299A0001000000A1 /* Frameworks */,
+				E8FFFFFF299A0001000000A1 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Monet;
+			productName = Monet;
+			productReference = E8000000299A0001000000A1 /* Monet.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E8FFFFF1299A0001000000A1 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					E8FFFFFE299A0001000000A1 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = E8000029299A0001000000A1 /* Build configuration list for PBXProject "Monet" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = E8FFFFF2299A0001000000A1;
+			productRefGroup = E8FFFFF3299A0001000000A1 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E8FFFFFE299A0001000000A1 /* Monet */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		E8FFFFFF299A0001000000A1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E8000021299A0001000000A1 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		E8FFFFF9299A0001000000A1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E8000001299A0001000000A1 /* MonetApp.swift in Sources */,
+				E8000003299A0001000000A1 /* Constants.swift in Sources */,
+				E8000005299A0001000000A1 /* Credentials.swift in Sources */,
+				E8000007299A0001000000A1 /* Account.swift in Sources */,
+				E8000009299A0001000000A1 /* UsageData.swift in Sources */,
+				E800000B299A0001000000A1 /* KeychainService.swift in Sources */,
+				E800000D299A0001000000A1 /* UsageAPIService.swift in Sources */,
+				E800000F299A0001000000A1 /* AuthenticationService.swift in Sources */,
+				E8000011299A0001000000A1 /* UsageViewModel.swift in Sources */,
+				E8000013299A0001000000A1 /* VisualEffectView.swift in Sources */,
+				E8000015299A0001000000A1 /* ProgressBar.swift in Sources */,
+				E8000017299A0001000000A1 /* UsageRow.swift in Sources */,
+				E8000019299A0001000000A1 /* CircularProgress.swift in Sources */,
+				E800001B299A0001000000A1 /* MenuBarIcon.swift in Sources */,
+				E800001D299A0001000000A1 /* UsagePanel.swift in Sources */,
+				0C479DF877A64636ADA5A438 /* SettingsView.swift in Sources */,
+				4EF09AD19E2F4A919EECCF0D /* SettingsWindowController.swift in Sources */,
+				E800001F299A0001000000A1 /* TimeFormatter.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		E8000026299A0001000000A1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		E8000027299A0001000000A1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		E8000028299A0001000000A1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Monet/Resources/Monet.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Monet/Resources/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.monet.usage-monitor";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		E800002B299A0001000000A1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Monet/Resources/Monet.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Monet/Resources/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.monet.usage-monitor";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		E8000029299A0001000000A1 /* Build configuration list for PBXProject "Monet" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E8000026299A0001000000A1 /* Debug */,
+				E8000027299A0001000000A1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E800002A299A0001000000A1 /* Build configuration list for PBXNativeTarget "Monet" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E8000028299A0001000000A1 /* Debug */,
+				E800002B299A0001000000A1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = E8FFFFF1299A0001000000A1 /* Project object */;
+}

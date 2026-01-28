@@ -1,0 +1,433 @@
+import SwiftUI
+
+/// The main popover panel displaying detailed usage information
+struct UsagePanel: View {
+    @ObservedObject var viewModel: UsageViewModel
+    @EnvironmentObject var authService: AuthenticationService
+
+    var body: some View {
+        ZStack {
+            VisualEffectView(material: .popover)
+                .ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 0) {
+                if viewModel.isAuthenticated {
+                    authenticatedContent
+                } else {
+                    unauthenticatedContent
+                }
+            }
+            .padding(20)
+        }
+        .frame(width: 340)
+    }
+
+    // MARK: - Authenticated Content
+
+    @ViewBuilder
+    private var authenticatedContent: some View {
+        // Header
+        headerView
+            .padding(.bottom, 20)
+
+        // Current Session Card
+        UsageCard {
+            if let session = viewModel.sessionUsage {
+                UsageRow(
+                    title: "Current session",
+                    subtitle: formatSessionSubtitle(session),
+                    percentage: session.utilization,
+                    color: colorForUsage(session.utilization)
+                )
+            } else if viewModel.isLoading {
+                loadingRow(title: "Current session")
+            }
+        }
+
+        Spacer().frame(height: 16)
+
+        // Weekly Limits Section
+        weeklyLimitsSection
+            .padding(.bottom, 12)
+
+        // Weekly usage cards
+        UsageCard {
+            VStack(spacing: 16) {
+                // All Models
+                if let weekly = viewModel.weeklyUsage {
+                    UsageRow(
+                        title: "All models",
+                        subtitle: formatWeeklySubtitle(weekly),
+                        percentage: weekly.utilization,
+                        color: colorForUsage(weekly.utilization)
+                    )
+                } else if viewModel.isLoading {
+                    loadingRow(title: "All models")
+                }
+
+                // Sonnet Only
+                if let sonnet = viewModel.sonnetUsage {
+                    Divider()
+                    UsageRow(
+                        title: "Sonnet only",
+                        subtitle: sonnet.utilization > 0
+                            ? formatWeeklySubtitle(sonnet)
+                            : "You haven't used Sonnet yet",
+                        percentage: sonnet.utilization,
+                        color: .teal
+                    )
+                }
+
+                // Opus Only
+                if let opus = viewModel.opusUsage {
+                    Divider()
+                    UsageRow(
+                        title: "Opus only",
+                        subtitle: opus.utilization > 0
+                            ? formatWeeklySubtitle(opus)
+                            : "You haven't used Opus yet",
+                        percentage: opus.utilization,
+                        color: .purple
+                    )
+                }
+            }
+        }
+
+        Spacer().frame(height: 16)
+
+        // Footer
+        footerView
+
+        Spacer().frame(height: 12)
+
+        // Actions
+        actionsView
+    }
+
+    // MARK: - Header View
+
+    @ViewBuilder
+    private var headerView: some View {
+        HStack(spacing: 12) {
+            // App icon
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [.blue, .purple],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 36, height: 36)
+
+                Image(systemName: "chart.pie.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Plan Usage")
+                    .font(.system(.headline, weight: .semibold))
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundColor(statusColor)
+            }
+
+            Spacer()
+
+            // Status indicator
+            Circle()
+                .fill(statusColor)
+                .frame(width: 8, height: 8)
+        }
+    }
+
+    private var statusText: String {
+        if viewModel.hasCriticalUsage {
+            return "Critical usage level"
+        } else if viewModel.hasWarningUsage {
+            return "Approaching limits"
+        } else {
+            return "All systems normal"
+        }
+    }
+
+    private var statusColor: Color {
+        if viewModel.hasCriticalUsage {
+            return .red
+        } else if viewModel.hasWarningUsage {
+            return .orange
+        } else {
+            return .green
+        }
+    }
+
+    // MARK: - Weekly Limits Section Header
+
+    @ViewBuilder
+    private var weeklyLimitsSection: some View {
+        HStack {
+            Text("Weekly Limits")
+                .font(.system(.subheadline, weight: .medium))
+                .foregroundColor(.secondary)
+
+            Spacer()
+
+            Link(destination: URL(string: "https://support.anthropic.com/en/articles/9767949-usage-limits")!) {
+                HStack(spacing: 4) {
+                    Text("Learn more")
+                    Image(systemName: "arrow.up.right")
+                }
+                .font(.caption)
+                .foregroundColor(.blue)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Unauthenticated Content
+
+    @ViewBuilder
+    private var unauthenticatedContent: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            // Icon
+            ZStack {
+                Circle()
+                    .fill(Color(.controlBackgroundColor))
+                    .frame(width: 80, height: 80)
+
+                Image(systemName: "person.crop.circle.badge.questionmark")
+                    .font(.system(size: 36))
+                    .foregroundColor(.secondary)
+            }
+
+            VStack(spacing: 8) {
+                Text("Sign in to Claude")
+                    .font(.system(.title3, weight: .semibold))
+
+                Text("Connect your Claude account to monitor your usage limits in real-time.")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+            }
+
+            if authService.isAuthenticating {
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .scaleEffect(0.9)
+                    Text("Waiting for authorization...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 8)
+            } else {
+                VStack(spacing: 12) {
+                    Button(action: {
+                        Task {
+                            try? await authService.startOAuthFlow()
+                        }
+                    }) {
+                        HStack {
+                            Image(systemName: "person.badge.key.fill")
+                            Text("Sign in with Claude")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+
+                    if KeychainService.shared.hasClaudeCodeCredentials() {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.caption)
+                            Text("Claude Code credentials detected")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Button("Use Claude Code Credentials") {
+                            authService.checkAuthenticationStatus()
+                            Task { await viewModel.refresh() }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                    }
+                }
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
+    }
+
+    // MARK: - Footer View
+
+    @ViewBuilder
+    private var footerView: some View {
+        HStack {
+            if let lastUpdated = viewModel.lastUpdated {
+                HStack(spacing: 4) {
+                    Image(systemName: "clock")
+                        .font(.caption2)
+                    Text(TimeFormatter.formatRelative(lastUpdated))
+                        .font(.caption)
+                }
+                .foregroundColor(.secondary)
+            } else {
+                Text("Not updated yet")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Button(action: {
+                Task { await viewModel.refresh() }
+            }) {
+                if viewModel.isLoading {
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .frame(width: 14, height: 14)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption)
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+            .disabled(viewModel.isLoading)
+            .help("Refresh usage data")
+        }
+
+        // Error display
+        if let error = viewModel.error {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                    .font(.caption)
+                Text(error.localizedDescription)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    // MARK: - Actions View
+
+    @ViewBuilder
+    private var actionsView: some View {
+        HStack(spacing: 12) {
+            Button(action: {
+                SettingsWindowController.shared.showSettings(viewModel: viewModel, authService: authService)
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "gear")
+                    Text("Settings")
+                }
+                .font(.caption)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color(.controlBackgroundColor))
+                .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Button(action: { NSApp.terminate(nil) }) {
+                Text("Quit")
+                    .font(.caption)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color(.controlBackgroundColor))
+                    .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Helper Views
+
+    @ViewBuilder
+    private func loadingRow(title: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                    .font(.system(.body, weight: .medium))
+                Spacer()
+                ProgressView()
+                    .scaleEffect(0.6)
+            }
+            UsageProgressBar(progress: 0, color: .gray)
+        }
+    }
+
+    // MARK: - Formatting Helpers
+
+    private func formatSessionSubtitle(_ metric: UsageMetric) -> String {
+        if let timeRemaining = TimeFormatter.formatCountdown(from: metric.resetsAt) {
+            return "Resets in \(timeRemaining)"
+        }
+        return "Reset time unknown"
+    }
+
+    private func formatWeeklySubtitle(_ metric: UsageMetric) -> String {
+        if let dateTime = TimeFormatter.formatDateTime(from: metric.resetsAt) {
+            return "Resets \(dateTime)"
+        }
+        return "Reset time unknown"
+    }
+
+    private func colorForUsage(_ percentage: Double) -> Color {
+        if percentage < 75 {
+            return .blue
+        } else if percentage < 90 {
+            return .orange
+        } else {
+            return .red
+        }
+    }
+}
+
+// MARK: - Usage Card
+
+struct UsageCard<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content
+            .padding(14)
+            .background(Color(.controlBackgroundColor).opacity(0.5))
+            .cornerRadius(10)
+    }
+}
+
+// MARK: - Info Button
+
+struct InfoButton: View {
+    let tooltip: String
+
+    var body: some View {
+        Image(systemName: "info.circle")
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .help(tooltip)
+    }
+}
+
+// MARK: - Preview
+
+#if DEBUG
+#Preview("Authenticated") {
+    UsagePanel(viewModel: UsageViewModel())
+        .environmentObject(AuthenticationService.shared)
+}
+#endif

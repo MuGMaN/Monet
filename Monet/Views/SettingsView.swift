@@ -124,6 +124,18 @@ struct SettingsView: View {
                                 Text("Unable to check for updates")
                                     .font(.body)
                                     .foregroundColor(.secondary)
+                            case .downloading:
+                                HStack(spacing: 8) {
+                                    Text("Downloading update...")
+                                        .font(.body)
+                                    Text("\(Int(updateService.downloadProgress * 100))%")
+                                        .font(.body)
+                                        .foregroundColor(.secondary)
+                                }
+                            case .installing:
+                                Text("Installing update...")
+                                    .font(.body)
+                                    .foregroundColor(.blue)
                             }
                             if let lastChecked = updateService.lastChecked {
                                 Text("Last checked: \(lastChecked.formatted(date: .abbreviated, time: .shortened))")
@@ -132,9 +144,14 @@ struct SettingsView: View {
                             }
                         }
                         Spacer()
-                        if updateService.updateAvailable {
-                            Button("Download") {
-                                updateService.openDownloadPage()
+                        if updateService.status == .downloading || updateService.status == .installing {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else if updateService.updateAvailable {
+                            Button("Install Update") {
+                                Task {
+                                    await updateService.installUpdate()
+                                }
                             }
                             .buttonStyle(.borderedProminent)
                         } else {

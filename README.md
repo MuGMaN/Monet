@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/assets/app-icon.png" alt="Monet" width="80" height="80">
+  <img src=".github/assets/app-icon-rounded.png" alt="Monet" width="80" height="80">
 </p>
 
 <h1 align="center">Monet</h1>

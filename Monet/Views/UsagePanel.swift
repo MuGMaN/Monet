@@ -166,7 +166,7 @@ struct UsagePanel: View {
 
             Spacer()
 
-            Link(destination: URL(string: "https://support.anthropic.com/en/articles/9767949-usage-limits")!) {
+            Link(destination: URL(string: "https://support.claude.com/en/articles/11647753-understanding-usage-and-length-limits")!) {
                 HStack(spacing: 4) {
                     Text("Learn more")
                     Image(systemName: "arrow.up.right")
@@ -309,6 +309,7 @@ struct UsagePanel: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
+                .tint(.red)
             }
 
             Spacer()

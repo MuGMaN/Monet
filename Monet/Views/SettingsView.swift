@@ -5,9 +5,14 @@ import ServiceManagement
 struct SettingsView: View {
     @ObservedObject var viewModel: UsageViewModel
     @EnvironmentObject var authService: AuthenticationService
+    @StateObject private var updateService = UpdateService.shared
 
     @State private var launchAtLogin: Bool = false
     @State private var showingSignOutAlert = false
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -92,20 +97,55 @@ struct SettingsView: View {
                         }
                     }
                 }
+
+                // Updates Section
+                SettingsSection(title: "Updates") {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            if updateService.updateAvailable, let latest = updateService.latestVersion {
+                                Text("Update available: v\(latest)")
+                                    .font(.body)
+                                    .foregroundColor(.orange)
+                            } else {
+                                Text("Monet is up to date")
+                                    .font(.body)
+                            }
+                            if let lastChecked = updateService.lastChecked {
+                                Text("Last checked: \(lastChecked.formatted(date: .abbreviated, time: .shortened))")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        Spacer()
+                        if updateService.updateAvailable {
+                            Button("Download") {
+                                updateService.openDownloadPage()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        } else {
+                            Button("Check Now") {
+                                Task {
+                                    await updateService.checkForUpdates()
+                                }
+                            }
+                            .disabled(updateService.isChecking)
+                        }
+                    }
+                }
             }
 
             Spacer()
 
             // Footer with version info
             HStack {
-                Text("Monet v1.0.0")
+                Text("Monet v\(appVersion)")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Spacer()
             }
         }
         .padding(20)
-        .frame(width: 380, height: 520)
+        .frame(width: 380, height: 600)
         .onAppear {
             loadLaunchAtLoginState()
         }

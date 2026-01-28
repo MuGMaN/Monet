@@ -28,7 +28,7 @@ final class SettingsWindowController {
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Monet Settings"
         window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 380, height: 520))
+        window.setContentSize(NSSize(width: 380, height: 600))
         window.center()
         window.isReleasedWhenClosed = false
 

@@ -1,0 +1,196 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.0.1)'
+        required: true
+        type: string
+
+env:
+  SCHEME: Monet
+  PRODUCT_NAME: Monet
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Update version in project
+        run: |
+          # Update Info.plist with version
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ steps.version.outputs.version }}" Monet/Resources/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" Monet/Resources/Info.plist
+
+      - name: Build application
+        run: |
+          xcodebuild -project Monet.xcodeproj \
+            -scheme $SCHEME \
+            -configuration Release \
+            -derivedDataPath build \
+            -archivePath build/Monet.xcarchive \
+            archive \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Export application
+        run: |
+          # Create export options plist
+          cat > ExportOptions.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>mac-application</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+          </dict>
+          </plist>
+          PLIST
+
+          # Export the archive
+          xcodebuild -exportArchive \
+            -archivePath build/Monet.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist ExportOptions.plist \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO || true
+
+          # Fallback: copy from archive if export fails
+          if [ ! -d "build/export/Monet.app" ]; then
+            mkdir -p build/export
+            cp -R "build/Monet.xcarchive/Products/Applications/Monet.app" build/export/
+          fi
+
+      - name: Create DMG
+        run: |
+          # Install create-dmg
+          brew install create-dmg
+
+          # Create DMG with drag-to-Applications
+          create-dmg \
+            --volname "Monet" \
+            --volicon "Monet/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "Monet.app" 150 185 \
+            --hide-extension "Monet.app" \
+            --app-drop-link 450 185 \
+            --no-internet-enable \
+            "build/Monet-${{ steps.version.outputs.version }}.dmg" \
+            "build/export/Monet.app" || true
+
+          # Fallback to simple DMG if create-dmg fails
+          if [ ! -f "build/Monet-${{ steps.version.outputs.version }}.dmg" ]; then
+            hdiutil create -volname "Monet" -srcfolder "build/export/Monet.app" -ov -format UDZO "build/Monet-${{ steps.version.outputs.version }}.dmg"
+          fi
+
+      - name: Create ZIP archive
+        run: |
+          cd build/export
+          zip -r "../Monet-${{ steps.version.outputs.version }}.zip" Monet.app
+          cd ../..
+
+      - name: Generate appcast item
+        id: appcast
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          DMG_SIZE=$(stat -f%z "build/Monet-${VERSION}.dmg")
+          DATE=$(date -u +"%a, %d %b %Y %H:%M:%S %z")
+
+          cat > build/appcast-item.xml << APPCAST
+              <item>
+                <title>Version ${VERSION}</title>
+                <pubDate>${DATE}</pubDate>
+                <sparkle:version>${{ github.run_number }}</sparkle:version>
+                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <enclosure
+                  url="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Monet-${VERSION}.dmg"
+                  length="${DMG_SIZE}"
+                  type="application/octet-stream" />
+              </item>
+          APPCAST
+
+          cat build/appcast-item.xml
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Monet-${{ steps.version.outputs.version }}
+          path: |
+            build/Monet-${{ steps.version.outputs.version }}.dmg
+            build/Monet-${{ steps.version.outputs.version }}.zip
+            build/appcast-item.xml
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            build/Monet-${{ steps.version.outputs.version }}.dmg
+            build/Monet-${{ steps.version.outputs.version }}.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## Monet v${{ steps.version.outputs.version }}
+
+            ### Installation
+            1. Download `Monet-${{ steps.version.outputs.version }}.dmg`
+            2. Open the DMG file
+            3. Drag Monet to your Applications folder
+            4. Launch Monet from Applications
+
+            ### What's New
+            See the automatically generated release notes below.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          files: |
+            build/Monet-${{ steps.version.outputs.version }}.dmg
+            build/Monet-${{ steps.version.outputs.version }}.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## Monet v${{ steps.version.outputs.version }}
+
+            ### Installation
+            1. Download `Monet-${{ steps.version.outputs.version }}.dmg`
+            2. Open the DMG file
+            3. Drag Monet to your Applications folder
+            4. Launch Monet from Applications
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

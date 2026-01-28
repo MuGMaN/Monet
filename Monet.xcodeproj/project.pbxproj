@@ -15,6 +15,7 @@
 		E800000B299A0001000000A1 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E800000C299A0001000000A1 /* KeychainService.swift */; };
 		E800000D299A0001000000A1 /* UsageAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E800000E299A0001000000A1 /* UsageAPIService.swift */; };
 		E800000F299A0001000000A1 /* AuthenticationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8000010299A0001000000A1 /* AuthenticationService.swift */; };
+		A1B2C3D4E5F6789012345678 /* UpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F67890123456789A /* UpdateService.swift */; };
 		E8000011299A0001000000A1 /* UsageViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8000012299A0001000000A1 /* UsageViewModel.swift */; };
 		E8000013299A0001000000A1 /* VisualEffectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8000014299A0001000000A1 /* VisualEffectView.swift */; };
 		E8000015299A0001000000A1 /* ProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8000016299A0001000000A1 /* ProgressBar.swift */; };
@@ -38,6 +39,7 @@
 		E800000C299A0001000000A1 /* KeychainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainService.swift; sourceTree = "<group>"; };
 		E800000E299A0001000000A1 /* UsageAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageAPIService.swift; sourceTree = "<group>"; };
 		E8000010299A0001000000A1 /* AuthenticationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationService.swift; sourceTree = "<group>"; };
+		B2C3D4E5F67890123456789A /* UpdateService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateService.swift; sourceTree = "<group>"; };
 		E8000012299A0001000000A1 /* UsageViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageViewModel.swift; sourceTree = "<group>"; };
 		E8000014299A0001000000A1 /* VisualEffectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEffectView.swift; sourceTree = "<group>"; };
 		E8000016299A0001000000A1 /* ProgressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressBar.swift; sourceTree = "<group>"; };
@@ -110,6 +112,7 @@
 				E800000C299A0001000000A1 /* KeychainService.swift */,
 				E800000E299A0001000000A1 /* UsageAPIService.swift */,
 				E8000010299A0001000000A1 /* AuthenticationService.swift */,
+				B2C3D4E5F67890123456789A /* UpdateService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -241,6 +244,7 @@
 				E800000B299A0001000000A1 /* KeychainService.swift in Sources */,
 				E800000D299A0001000000A1 /* UsageAPIService.swift in Sources */,
 				E800000F299A0001000000A1 /* AuthenticationService.swift in Sources */,
+				A1B2C3D4E5F6789012345678 /* UpdateService.swift in Sources */,
 				E8000011299A0001000000A1 /* UsageViewModel.swift in Sources */,
 				E8000013299A0001000000A1 /* VisualEffectView.swift in Sources */,
 				E8000015299A0001000000A1 /* ProgressBar.swift in Sources */,

@@ -27,7 +27,14 @@ A lightweight macOS menu bar app for monitoring your Claude API usage in real-ti
 
 1. Download the latest `Monet-x.x.x.dmg` from [Releases](../../releases/latest)
 2. Open the DMG and drag Monet to Applications
-3. Launch Monet from Applications
+3. **Important — First launch only:**
+   ```bash
+   xattr -cr /Applications/Monet.app
+   ```
+   This removes the macOS quarantine flag (the app is unsigned but safe).
+4. Launch Monet from Applications
+
+> **Alternative:** Right-click Monet.app → "Open" → click "Open" in the dialog.
 
 ### Build from Source
 

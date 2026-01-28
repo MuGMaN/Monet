@@ -1,15 +1,24 @@
 <p align="center">
+  <img src=".github/assets/app-icon.png" alt="Monet" width="80" height="80">
+</p>
+
+<h1 align="center">Monet</h1>
+
+<p align="center">
+  A lightweight macOS menu bar app for monitoring your Claude API usage in real-time.
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Platform-macOS%2014%2B-blue?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/Swift-5.9-orange?style=flat-square" alt="Swift">
+  <img src="https://img.shields.io/github/v/release/MuGMaN/Monet?style=flat-square" alt="Release">
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License">
 </p>
 
-# Monet
-
-A lightweight macOS menu bar app for monitoring your Claude API usage in real-time.
-
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/placeholder-screenshot.png" alt="Monet Screenshot" width="400">
+  <img src=".github/assets/Screenshot_Main.png" alt="Main Panel" width="340">
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src=".github/assets/Screenshot_Settings.png" alt="Settings" width="340">
 </p>
 
 ## Features
@@ -81,6 +90,10 @@ Access Settings from the menu bar dropdown:
 
 - macOS 14.0 (Sonoma) or later
 - Active Claude Pro/Team subscription
+
+## Contributing
+
+Contributions are welcome! Please read the [Contributing Guidelines](CONTRIBUTING.md) before submitting a PR.
 
 ## Privacy
 

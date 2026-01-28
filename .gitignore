@@ -57,6 +57,7 @@ playground.xcworkspace
 
 # Claude Code
 .claude/
+CLAUDE.md
 
 # Secrets (just in case)
 *.env

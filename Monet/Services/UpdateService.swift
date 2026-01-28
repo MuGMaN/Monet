@@ -1,16 +1,24 @@
 import Foundation
 import AppKit
 
+/// Update check status
+enum UpdateStatus: Equatable {
+    case unknown           // Haven't checked yet
+    case checking          // Currently checking
+    case upToDate          // Confirmed up to date
+    case updateAvailable   // New version available
+    case checkFailed       // Could not reach update server (private repo, network error, etc.)
+}
+
 /// Service for checking and handling app updates via GitHub Releases
 @MainActor
 final class UpdateService: ObservableObject {
     static let shared = UpdateService()
 
-    @Published private(set) var updateAvailable: Bool = false
+    @Published private(set) var status: UpdateStatus = .unknown
     @Published private(set) var latestVersion: String?
     @Published private(set) var downloadURL: URL?
     @Published private(set) var releaseNotes: String?
-    @Published private(set) var isChecking: Bool = false
     @Published private(set) var lastChecked: Date?
 
     private let currentVersion: String
@@ -22,13 +30,9 @@ final class UpdateService: ObservableObject {
 
     /// Check for updates from GitHub Releases
     func checkForUpdates() async {
-        guard !isChecking else { return }
+        guard status != .checking else { return }
 
-        isChecking = true
-        defer {
-            isChecking = false
-            lastChecked = Date()
-        }
+        status = .checking
 
         do {
             let release = try await fetchLatestRelease()
@@ -46,20 +50,33 @@ final class UpdateService: ObservableObject {
                 downloadURL = URL(string: dmgAsset.browserDownloadURL)
             }
 
-            // Compare versions
-            updateAvailable = isNewerVersion(tagVersion, than: currentVersion)
+            // Compare versions (also check if user skipped this version)
+            let isNewer = isNewerVersion(tagVersion, than: currentVersion) && !isVersionSkipped(tagVersion)
+            status = isNewer ? .updateAvailable : .upToDate
+            lastChecked = Date()
 
         } catch {
             #if DEBUG
             print("Failed to check for updates: \(error)")
             #endif
-            updateAvailable = false
+            status = .checkFailed
+            lastChecked = Date()
         }
+    }
+
+    /// Whether checking is in progress
+    var isChecking: Bool {
+        status == .checking
+    }
+
+    /// Whether an update is available
+    var updateAvailable: Bool {
+        status == .updateAvailable
     }
 
     /// Show update dialog if update is available
     func showUpdateDialogIfNeeded() {
-        guard updateAvailable, let latestVersion = latestVersion else { return }
+        guard status == .updateAvailable, let latestVersion = latestVersion else { return }
 
         let alert = NSAlert()
         alert.messageText = "Update Available"

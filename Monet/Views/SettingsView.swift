@@ -102,13 +102,28 @@ struct SettingsView: View {
                 SettingsSection(title: "Updates") {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            if updateService.updateAvailable, let latest = updateService.latestVersion {
-                                Text("Update available: v\(latest)")
+                            switch updateService.status {
+                            case .unknown:
+                                Text("Update status unknown")
                                     .font(.body)
-                                    .foregroundColor(.orange)
-                            } else {
+                                    .foregroundColor(.secondary)
+                            case .checking:
+                                Text("Checking for updates...")
+                                    .font(.body)
+                                    .foregroundColor(.secondary)
+                            case .upToDate:
                                 Text("Monet is up to date")
                                     .font(.body)
+                            case .updateAvailable:
+                                if let latest = updateService.latestVersion {
+                                    Text("Update available: v\(latest)")
+                                        .font(.body)
+                                        .foregroundColor(.orange)
+                                }
+                            case .checkFailed:
+                                Text("Unable to check for updates")
+                                    .font(.body)
+                                    .foregroundColor(.secondary)
                             }
                             if let lastChecked = updateService.lastChecked {
                                 Text("Last checked: \(lastChecked.formatted(date: .abbreviated, time: .shortened))")

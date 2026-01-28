@@ -11,7 +11,9 @@ struct UsagePanel: View {
                 .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
-                if viewModel.isAuthenticated {
+                if let error = viewModel.error, error.requiresSubscription {
+                    subscriptionRequiredContent
+                } else if viewModel.isAuthenticated {
                     authenticatedContent
                 } else {
                     unauthenticatedContent
@@ -251,6 +253,67 @@ struct UsagePanel: View {
             }
 
             Spacer()
+
+            quitButton
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
+    }
+
+    // MARK: - Subscription Required Content
+
+    @ViewBuilder
+    private var subscriptionRequiredContent: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            // Icon
+            ZStack {
+                Circle()
+                    .fill(Color(.controlBackgroundColor))
+                    .frame(width: 80, height: 80)
+
+                Image(systemName: "creditcard.trianglebadge.exclamationmark")
+                    .font(.system(size: 36))
+                    .foregroundColor(.orange)
+            }
+
+            VStack(spacing: 8) {
+                Text("Subscription Required")
+                    .font(.system(.title3, weight: .semibold))
+
+                Text("Monet requires a Claude Pro or Max subscription to monitor your usage limits.")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(4)
+            }
+
+            VStack(spacing: 12) {
+                Link(destination: URL(string: "https://claude.ai/upgrade")!) {
+                    HStack {
+                        Image(systemName: "arrow.up.circle.fill")
+                        Text("Upgrade to Pro or Max")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(Color.accentColor)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+
+                Button("Sign Out") {
+                    authService.signOut()
+                    viewModel.clearError()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+            }
+
+            Spacer()
+
+            quitButton
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 20)
@@ -332,6 +395,24 @@ struct UsagePanel: View {
 
             Spacer()
 
+            Button(action: { NSApp.terminate(nil) }) {
+                Text("Quit")
+                    .font(.caption)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color(.controlBackgroundColor))
+                    .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Quit Button
+
+    @ViewBuilder
+    private var quitButton: some View {
+        HStack {
+            Spacer()
             Button(action: { NSApp.terminate(nil) }) {
                 Text("Quit")
                     .font(.caption)

@@ -97,6 +97,7 @@ struct UsageDisplayData {
 
 enum UsageAPIError: LocalizedError {
     case invalidToken
+    case noSubscription
     case networkError(Error)
     case invalidResponse
     case decodingError(Error)
@@ -108,6 +109,8 @@ enum UsageAPIError: LocalizedError {
         switch self {
         case .invalidToken:
             return "Invalid or expired authentication token"
+        case .noSubscription:
+            return "Claude Pro or Max subscription required"
         case .networkError(let error):
             return "Network error: \(error.localizedDescription)"
         case .invalidResponse:
@@ -130,8 +133,16 @@ enum UsageAPIError: LocalizedError {
         switch self {
         case .networkError, .rateLimited, .serverError:
             return true
-        case .invalidToken, .invalidResponse, .decodingError, .unknown:
+        case .invalidToken, .noSubscription, .invalidResponse, .decodingError, .unknown:
             return false
         }
+    }
+
+    /// Whether this error indicates the user needs a Pro/Max subscription
+    var requiresSubscription: Bool {
+        if case .noSubscription = self {
+            return true
+        }
+        return false
     }
 }

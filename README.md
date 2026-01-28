@@ -89,7 +89,7 @@ Access Settings from the menu bar dropdown:
 ## Requirements
 
 - macOS 14.0 (Sonoma) or later
-- Active Claude Pro/Team subscription
+- **Claude Pro or Max subscription** — The usage API is only available to Pro and Max subscribers. Free tier accounts cannot use this app.
 
 ## Contributing
 

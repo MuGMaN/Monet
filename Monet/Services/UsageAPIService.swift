@@ -45,6 +45,14 @@ actor UsageAPIService {
             break // Success, continue parsing
         case 401:
             throw UsageAPIError.invalidToken
+        case 403:
+            // Check if this is a permission error (no Pro/Max subscription)
+            if let errorBody = String(data: data, encoding: .utf8),
+               errorBody.contains("permission_error") {
+                throw UsageAPIError.noSubscription
+            }
+            let message = String(data: data, encoding: .utf8)
+            throw UsageAPIError.serverError(statusCode: httpResponse.statusCode, message: message)
         case 429:
             let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After")
                 .flatMap { TimeInterval($0) }

@@ -161,18 +161,15 @@ jobs:
             build/Monet-${{ steps.version.outputs.version }}.zip
           draft: false
           prerelease: false
-          generate_release_notes: true
+          append_body: true
           body: |
-            ## Monet v${{ steps.version.outputs.version }}
 
+            ---
             ### Installation
             1. Download `Monet-${{ steps.version.outputs.version }}.dmg`
             2. Open the DMG file
             3. Drag Monet to your Applications folder
             4. Launch Monet from Applications
-
-            ### What's New
-            See the automatically generated release notes below.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -187,13 +184,5 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
-          body: |
-            ## Monet v${{ steps.version.outputs.version }}
-
-            ### Installation
-            1. Download `Monet-${{ steps.version.outputs.version }}.dmg`
-            2. Open the DMG file
-            3. Drag Monet to your Applications folder
-            4. Launch Monet from Applications
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

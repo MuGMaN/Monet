@@ -110,21 +110,11 @@ struct UsagePanel: View {
     private var headerView: some View {
         HStack(spacing: 12) {
             // App icon
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [.blue, .purple],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 36, height: 36)
-
-                Image(systemName: "chart.pie.fill")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.white)
-            }
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Plan Usage")

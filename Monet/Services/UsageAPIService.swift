@@ -39,6 +39,14 @@ actor UsageAPIService {
             throw UsageAPIError.invalidResponse
         }
 
+        // Log response for debugging
+        #if DEBUG
+        if httpResponse.statusCode != 200 {
+            let responseBody = String(data: data, encoding: .utf8) ?? "Unable to decode"
+            print("⚠️ Usage API Error [\(httpResponse.statusCode)]: \(responseBody)")
+        }
+        #endif
+
         // Handle different status codes
         switch httpResponse.statusCode {
         case 200:
@@ -46,13 +54,31 @@ actor UsageAPIService {
         case 401:
             throw UsageAPIError.invalidToken
         case 403:
-            // Check if this is a permission error (no Pro/Max subscription)
-            if let errorBody = String(data: data, encoding: .utf8),
-               errorBody.contains("permission_error") {
-                throw UsageAPIError.noSubscription
+            // Parse the error response to determine the specific issue
+            if let errorBody = String(data: data, encoding: .utf8) {
+                // Check for Claude Code credential restriction (Anthropic blocks third-party usage)
+                if errorBody.contains("only authorized for use with Claude Code") ||
+                   errorBody.contains("cannot be used for other API requests") {
+                    throw UsageAPIError.claudeCodeCredentialsRestricted
+                }
+
+                // Check for scope-related errors
+                if errorBody.contains("scope") || errorBody.contains("insufficient") {
+                    throw UsageAPIError.insufficientScope(message: errorBody)
+                }
+
+                // Check for subscription-related errors
+                if errorBody.contains("permission_error") ||
+                   errorBody.contains("subscription") ||
+                   errorBody.contains("not authorized") ||
+                   errorBody.contains("upgrade") {
+                    throw UsageAPIError.noSubscription
+                }
+
+                // Other 403 errors - include the actual message for debugging
+                throw UsageAPIError.serverError(statusCode: httpResponse.statusCode, message: errorBody)
             }
-            let message = String(data: data, encoding: .utf8)
-            throw UsageAPIError.serverError(statusCode: httpResponse.statusCode, message: message)
+            throw UsageAPIError.serverError(statusCode: httpResponse.statusCode, message: nil)
         case 429:
             let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After")
                 .flatMap { TimeInterval($0) }

@@ -196,4 +196,9 @@ extension UsageViewModel {
         }
         return false
     }
+
+    /// Whether Claude Code credentials have been restricted by Anthropic
+    var isClaudeCodeRestricted: Bool {
+        error?.isClaudeCodeRestricted ?? false
+    }
 }

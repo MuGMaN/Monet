@@ -218,9 +218,29 @@ struct UsagePanel: View {
                 .padding(.vertical, 8)
             } else {
                 VStack(spacing: 12) {
+                    // Show OAuth error if present
+                    if let authError = authService.lastAuthError {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                                .font(.caption)
+                            Text(authError.errorDescription ?? "Authentication failed")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding(.vertical, 4)
+                    }
+
                     Button(action: {
                         Task {
-                            try? await authService.startOAuthFlow()
+                            authService.clearError()
+                            do {
+                                try await authService.startOAuthFlow()
+                            } catch {
+                                // Error is stored in authService.lastAuthError
+                                // UI will update automatically via @Published
+                            }
                         }
                     }) {
                         HStack {
@@ -232,7 +252,8 @@ struct UsagePanel: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
 
-                    if KeychainService.shared.hasClaudeCodeCredentials() {
+                    // Only show Claude Code option if we haven't received a restriction error
+                    if KeychainService.shared.hasClaudeCodeCredentials() && !viewModel.isClaudeCodeRestricted {
                         HStack(spacing: 6) {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
@@ -243,11 +264,22 @@ struct UsagePanel: View {
                         }
 
                         Button("Use Claude Code Credentials") {
+                            authService.clearError()
                             authService.checkAuthenticationStatus()
                             Task { await viewModel.refresh() }
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.regular)
+                    } else if viewModel.isClaudeCodeRestricted {
+                        HStack(spacing: 6) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.orange)
+                                .font(.caption)
+                            Text("Claude Code credentials cannot be used. Please sign in with OAuth.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
                     }
                 }
             }
@@ -287,9 +319,28 @@ struct UsagePanel: View {
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .lineLimit(4)
+
+                Text("If you recently upgraded, try refreshing your credentials.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
             }
 
             VStack(spacing: 12) {
+                // Retry button for recently upgraded users
+                Button(action: {
+                    viewModel.clearError()
+                    Task { await viewModel.refresh() }
+                }) {
+                    HStack {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Refresh Credentials")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
                 Link(destination: URL(string: "https://claude.ai/upgrade")!) {
                     HStack {
                         Image(systemName: "arrow.up.circle.fill")
@@ -297,8 +348,8 @@ struct UsagePanel: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
+                    .background(Color(.controlBackgroundColor))
+                    .foregroundColor(.primary)
                     .cornerRadius(8)
                 }
                 .buttonStyle(.plain)

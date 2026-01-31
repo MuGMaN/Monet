@@ -38,6 +38,14 @@ struct ClaudeAiOAuthToken: Codable {
         guard let expiresAt = expiresAt else { return nil }
         return Date(timeIntervalSince1970: Double(expiresAt) / 1000.0)
     }
+
+    /// Whether the subscription type indicates Pro or Max
+    var hasProOrMaxSubscription: Bool {
+        guard let subscriptionType = subscriptionType?.lowercased() else {
+            return false
+        }
+        return subscriptionType.contains("pro") || subscriptionType.contains("max")
+    }
 }
 
 // MARK: - Monet's Own Token Storage
@@ -86,6 +94,17 @@ struct OAuthTokenResponse: Codable {
         case refreshToken = "refresh_token"
         case expiresIn = "expires_in"
         case tokenType = "token_type"
+    }
+}
+
+/// Error response from OAuth token endpoint
+struct OAuthErrorResponse: Codable {
+    let error: String
+    let errorDescription: String?
+
+    enum CodingKeys: String, CodingKey {
+        case error
+        case errorDescription = "error_description"
     }
 }
 

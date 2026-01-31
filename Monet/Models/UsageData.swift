@@ -98,6 +98,8 @@ struct UsageDisplayData {
 enum UsageAPIError: LocalizedError {
     case invalidToken
     case noSubscription
+    case claudeCodeCredentialsRestricted
+    case insufficientScope(message: String?)
     case networkError(Error)
     case invalidResponse
     case decodingError(Error)
@@ -111,6 +113,13 @@ enum UsageAPIError: LocalizedError {
             return "Invalid or expired authentication token"
         case .noSubscription:
             return "Claude Pro or Max subscription required"
+        case .claudeCodeCredentialsRestricted:
+            return "Claude Code credentials cannot be used with third-party apps. Please sign in with OAuth instead."
+        case .insufficientScope(let message):
+            if let msg = message, !msg.isEmpty {
+                return "Insufficient permissions: \(msg)"
+            }
+            return "Insufficient permissions. Try signing out and signing in again."
         case .networkError(let error):
             return "Network error: \(error.localizedDescription)"
         case .invalidResponse:
@@ -133,9 +142,17 @@ enum UsageAPIError: LocalizedError {
         switch self {
         case .networkError, .rateLimited, .serverError:
             return true
-        case .invalidToken, .noSubscription, .invalidResponse, .decodingError, .unknown:
+        case .invalidToken, .noSubscription, .claudeCodeCredentialsRestricted, .insufficientScope, .invalidResponse, .decodingError, .unknown:
             return false
         }
+    }
+
+    /// Whether this error means Claude Code credentials can't be used
+    var isClaudeCodeRestricted: Bool {
+        if case .claudeCodeCredentialsRestricted = self {
+            return true
+        }
+        return false
     }
 
     /// Whether this error indicates the user needs a Pro/Max subscription

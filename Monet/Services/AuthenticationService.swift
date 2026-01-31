@@ -11,6 +11,7 @@ final class AuthenticationService: NSObject, ObservableObject {
 
     @Published private(set) var state: AuthenticationState = .unknown
     @Published private(set) var isAuthenticating = false
+    @Published private(set) var lastAuthError: AuthenticationError?
 
     private let keychain = KeychainService.shared
     private var codeVerifier: String?
@@ -19,6 +20,11 @@ final class AuthenticationService: NSObject, ObservableObject {
     override init() {
         super.init()
         checkAuthenticationStatus()
+    }
+
+    /// Clear the last authentication error
+    func clearError() {
+        lastAuthError = nil
     }
 
     // MARK: - Public Methods
@@ -43,19 +49,35 @@ final class AuthenticationService: NSObject, ObservableObject {
 
     /// Get token from Claude Code credentials
     private func getClaudeCodeToken() async throws -> String {
-        let credentials = try keychain.readClaudeCodeCredentials()
+        var credentials = try keychain.readClaudeCodeCredentials()
 
-        // Check if token needs refresh
-        if credentials.isExpired || credentials.needsRefresh {
+        // Check if token needs refresh (expired, needs refresh, or missing subscription info)
+        let needsRefreshForSubscription = credentials.subscriptionType == nil ||
+            !credentials.hasProOrMaxSubscription
+
+        if credentials.isExpired || credentials.needsRefresh || needsRefreshForSubscription {
             if let refreshToken = credentials.refreshToken {
-                let newTokens = try await refreshClaudeCodeToken(refreshToken: refreshToken)
-                // Update stored credentials
-                try keychain.updateClaudeCodeTokens(
-                    accessToken: newTokens.accessToken,
-                    refreshToken: newTokens.refreshToken ?? refreshToken,
-                    expiresAt: Date().addingTimeInterval(newTokens.expiresIn)
-                )
-                return newTokens.accessToken
+                do {
+                    let newTokens = try await refreshClaudeCodeToken(refreshToken: refreshToken)
+                    // Update stored credentials
+                    try keychain.updateClaudeCodeTokens(
+                        accessToken: newTokens.accessToken,
+                        refreshToken: newTokens.refreshToken ?? refreshToken,
+                        expiresAt: Date().addingTimeInterval(newTokens.expiresIn)
+                    )
+                    return newTokens.accessToken
+                } catch {
+                    // If refresh fails but token isn't expired, try using existing token
+                    if !credentials.isExpired {
+                        return credentials.accessToken
+                    }
+                    throw AuthenticationError.tokenExpired
+                }
+            }
+
+            // No refresh token - if not expired, try using existing token
+            if !credentials.isExpired {
+                return credentials.accessToken
             }
             throw AuthenticationError.tokenExpired
         }
@@ -81,11 +103,18 @@ final class AuthenticationService: NSObject, ObservableObject {
 
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw AuthenticationError.tokenRefreshFailed(reason: error.localizedDescription)
+        }
 
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
-            throw AuthenticationError.tokenRefreshFailed
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw AuthenticationError.tokenRefreshFailed(reason: errorMessage)
         }
 
         let tokenResponse = try JSONDecoder().decode(OAuthTokenResponse.self, from: data)
@@ -117,6 +146,7 @@ final class AuthenticationService: NSObject, ObservableObject {
 
     /// Start the OAuth authentication flow
     func startOAuthFlow() async throws {
+        lastAuthError = nil
         isAuthenticating = true
 
         do {
@@ -156,7 +186,7 @@ final class AuthenticationService: NSObject, ObservableObject {
             // Wait for callback
             let receivedURL = try await server.waitForCallback()
 
-            // Stop server
+            // Stop server immediately after receiving callback
             await server.stop()
             self.httpServer = nil
 
@@ -186,14 +216,24 @@ final class AuthenticationService: NSObject, ObservableObject {
             // Save tokens
             try keychain.saveMonetTokens(tokens, for: "default")
 
+            // Update state - ensure this happens on MainActor
             self.state = .authenticated(source: .monet)
-            isAuthenticating = false
+            self.lastAuthError = nil
+            self.isAuthenticating = false
 
-        } catch {
+        } catch let authError as AuthenticationError {
             isAuthenticating = false
+            lastAuthError = authError
             await httpServer?.stop()
             httpServer = nil
-            throw error
+            throw authError
+        } catch {
+            isAuthenticating = false
+            let authError = AuthenticationError.oauthError(error)
+            lastAuthError = authError
+            await httpServer?.stop()
+            httpServer = nil
+            throw authError
         }
     }
 
@@ -201,6 +241,7 @@ final class AuthenticationService: NSObject, ObservableObject {
     func signOut() {
         try? keychain.deleteMonetTokens(for: "default")
         state = .unauthenticated
+        lastAuthError = nil
     }
 
     // MARK: - Private Methods
@@ -242,24 +283,49 @@ final class AuthenticationService: NSObject, ObservableObject {
 
         request.httpBody = body.data(using: .utf8)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let data: Data
+        let response: URLResponse
+
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw AuthenticationError.tokenExchangeFailed(reason: "Network error: \(error.localizedDescription)")
+        }
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw AuthenticationError.tokenExchangeFailed
+            throw AuthenticationError.tokenExchangeFailed(reason: "Invalid response from server")
         }
 
         if httpResponse.statusCode != 200 {
-            throw AuthenticationError.tokenExchangeFailed
+            // Parse error response to get actual reason
+            let errorMessage: String
+            if let errorBody = String(data: data, encoding: .utf8), !errorBody.isEmpty {
+                #if DEBUG
+                print("⚠️ Token Exchange Error [\(httpResponse.statusCode)]: \(errorBody)")
+                #endif
+                // Try to parse as JSON error
+                if let errorJson = try? JSONDecoder().decode(OAuthErrorResponse.self, from: data) {
+                    errorMessage = errorJson.errorDescription ?? errorJson.error
+                } else {
+                    errorMessage = errorBody
+                }
+            } else {
+                errorMessage = "HTTP \(httpResponse.statusCode)"
+            }
+            throw AuthenticationError.tokenExchangeFailed(reason: errorMessage)
         }
 
-        let tokenResponse = try JSONDecoder().decode(OAuthTokenResponse.self, from: data)
-
-        return OAuthTokens(
-            accessToken: tokenResponse.accessToken,
-            refreshToken: tokenResponse.refreshToken,
-            expiresIn: TimeInterval(tokenResponse.expiresIn),
-            tokenType: tokenResponse.tokenType ?? "Bearer"
-        )
+        do {
+            let tokenResponse = try JSONDecoder().decode(OAuthTokenResponse.self, from: data)
+            return OAuthTokens(
+                accessToken: tokenResponse.accessToken,
+                refreshToken: tokenResponse.refreshToken,
+                expiresIn: TimeInterval(tokenResponse.expiresIn),
+                tokenType: tokenResponse.tokenType ?? "Bearer"
+            )
+        } catch {
+            throw AuthenticationError.tokenExchangeFailed(reason: "Failed to parse token response: \(error.localizedDescription)")
+        }
     }
 
     private func refreshAccessToken(refreshToken: String) async throws -> OAuthTokens {
@@ -279,11 +345,18 @@ final class AuthenticationService: NSObject, ObservableObject {
 
         request.httpBody = body.data(using: .utf8)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw AuthenticationError.tokenRefreshFailed(reason: error.localizedDescription)
+        }
 
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
-            throw AuthenticationError.tokenRefreshFailed
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw AuthenticationError.tokenRefreshFailed(reason: errorMessage)
         }
 
         let tokenResponse = try JSONDecoder().decode(OAuthTokenResponse.self, from: data)
@@ -470,8 +543,8 @@ enum AuthenticationError: LocalizedError {
     case stateMismatch
     case noAuthorizationCode
     case serverError(String)
-    case tokenExchangeFailed
-    case tokenRefreshFailed
+    case tokenExchangeFailed(reason: String)
+    case tokenRefreshFailed(reason: String?)
     case oauthError(Error)
 
     var errorDescription: String? {
@@ -496,9 +569,12 @@ enum AuthenticationError: LocalizedError {
             return "No authorization code received"
         case .serverError(let message):
             return "Server error: \(message)"
-        case .tokenExchangeFailed:
-            return "Failed to exchange code for tokens"
-        case .tokenRefreshFailed:
+        case .tokenExchangeFailed(let reason):
+            return "Token exchange failed: \(reason)"
+        case .tokenRefreshFailed(let reason):
+            if let reason = reason {
+                return "Token refresh failed: \(reason)"
+            }
             return "Failed to refresh access token"
         case .oauthError(let error):
             return "OAuth error: \(error.localizedDescription)"

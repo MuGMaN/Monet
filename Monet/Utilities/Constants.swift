@@ -23,6 +23,7 @@ enum Constants {
         static let claudeCodeService = "Claude Code-credentials"
         static let monetService = "com.monet.usage-monitor"
         static let accountCredentials = "credentials"
+        static let claudeCodeCache = "claude-code-cache"
     }
 
     // MARK: - API Headers

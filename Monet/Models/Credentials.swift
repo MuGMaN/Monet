@@ -46,6 +46,15 @@ struct ClaudeAiOAuthToken: Codable {
         }
         return subscriptionType.contains("pro") || subscriptionType.contains("max")
     }
+
+    /// Whether the token has the user:profile scope required for the usage API
+    var hasProfileScope: Bool {
+        guard let scopes = scopes, !scopes.isEmpty else {
+            // If scopes are unknown, assume it might work and let the API tell us
+            return true
+        }
+        return scopes.contains("user:profile")
+    }
 }
 
 // MARK: - Monet's Own Token Storage

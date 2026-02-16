@@ -15,7 +15,13 @@ final class AuthenticationService: NSObject, ObservableObject {
 
     private let keychain = KeychainService.shared
     private var codeVerifier: String?
+    private var activeRedirectURI: String?
     private var httpServer: LocalHTTPServer?
+
+    /// Ports to try for the OAuth callback server
+    private static let callbackPorts: [UInt16] = [54545, 54546, 54547, 54548, 54549]
+    /// Timeout for waiting for the OAuth callback (2 minutes)
+    private static let callbackTimeout: TimeInterval = 120
 
     override init() {
         super.init()
@@ -31,11 +37,15 @@ final class AuthenticationService: NSObject, ObservableObject {
 
     /// Get a valid access token
     func getAccessToken() async throws -> String {
-        // Try Claude Code's tokens first (they work with the usage API!)
-        if let token = try? await getClaudeCodeToken() {
+        // Try Claude Code's tokens first
+        var claudeCodeError: AuthenticationError?
+        do {
+            let token = try await getClaudeCodeToken()
             state = .authenticated(source: .claudeCode)
             return token
-        }
+        } catch let error as AuthenticationError {
+            claudeCodeError = error
+        } catch {}
 
         // Try Monet's own tokens as fallback
         if let token = try? await getMonetToken() {
@@ -43,99 +53,67 @@ final class AuthenticationService: NSObject, ObservableObject {
             return token
         }
 
+        // Neither worked - store Claude Code error for UI display if relevant
         state = .unauthenticated
+        if let ccError = claudeCodeError {
+            lastAuthError = ccError
+        }
         throw AuthenticationError.noValidToken
     }
 
-    /// Get token from Claude Code credentials
+    /// Get token from Claude Code credentials (read-only - never modifies Claude Code's keychain)
     private func getClaudeCodeToken() async throws -> String {
-        var credentials = try keychain.readClaudeCodeCredentials()
+        // First check Monet's cached refreshed Claude Code token
+        if let cached = try? keychain.readMonetTokens(for: Constants.Keychain.claudeCodeCache),
+           !cached.isExpired {
+            return cached.accessToken
+        }
 
-        // Check if token needs refresh (expired, needs refresh, or missing subscription info)
-        let needsRefreshForSubscription = credentials.subscriptionType == nil ||
-            !credentials.hasProOrMaxSubscription
+        // Read Claude Code's original credentials (read-only)
+        let credentials = try keychain.readClaudeCodeCredentials()
 
-        if credentials.isExpired || credentials.needsRefresh || needsRefreshForSubscription {
-            if let refreshToken = credentials.refreshToken {
-                do {
-                    let newTokens = try await refreshClaudeCodeToken(refreshToken: refreshToken)
-                    // Update stored credentials
-                    try keychain.updateClaudeCodeTokens(
-                        accessToken: newTokens.accessToken,
-                        refreshToken: newTokens.refreshToken ?? refreshToken,
-                        expiresAt: Date().addingTimeInterval(newTokens.expiresIn)
-                    )
-                    return newTokens.accessToken
-                } catch {
-                    // If refresh fails but token isn't expired, try using existing token
-                    if !credentials.isExpired {
-                        return credentials.accessToken
-                    }
-                    throw AuthenticationError.tokenExpired
-                }
-            }
+        // Check if token has the required scope for the usage API
+        if !credentials.hasProfileScope {
+            throw AuthenticationError.missingScope
+        }
 
-            // No refresh token - if not expired, try using existing token
-            if !credentials.isExpired {
-                return credentials.accessToken
-            }
+        // If token is not expired, use it directly
+        if !credentials.isExpired {
+            return credentials.accessToken
+        }
+
+        // Token is expired - try to refresh using the refresh token
+        guard let refreshToken = credentials.refreshToken else {
             throw AuthenticationError.tokenExpired
         }
 
-        return credentials.accessToken
-    }
-
-    /// Refresh Claude Code token
-    private func refreshClaudeCodeToken(refreshToken: String) async throws -> OAuthTokens {
-        guard let url = URL(string: "https://api.anthropic.com/v1/oauth/token") else {
-            throw AuthenticationError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let body: [String: String] = [
-            "grant_type": "refresh_token",
-            "refresh_token": refreshToken,
-            "client_id": Constants.OAuth.clientID
-        ]
-
-        request.httpBody = try JSONEncoder().encode(body)
-
-        let data: Data
-        let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            // Use the standard OAuth token endpoint (same as Monet's own refresh)
+            let newTokens = try await refreshAccessToken(refreshToken: refreshToken)
+            // Cache refreshed token under Monet's own keychain service (NEVER modify Claude Code's entry)
+            try keychain.saveMonetTokens(newTokens, for: Constants.Keychain.claudeCodeCache)
+            return newTokens.accessToken
         } catch {
-            throw AuthenticationError.tokenRefreshFailed(reason: error.localizedDescription)
+            throw AuthenticationError.tokenExpired
         }
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw AuthenticationError.tokenRefreshFailed(reason: errorMessage)
-        }
-
-        let tokenResponse = try JSONDecoder().decode(OAuthTokenResponse.self, from: data)
-
-        return OAuthTokens(
-            accessToken: tokenResponse.accessToken,
-            refreshToken: tokenResponse.refreshToken,
-            expiresIn: TimeInterval(tokenResponse.expiresIn),
-            tokenType: tokenResponse.tokenType ?? "Bearer"
-        )
     }
 
     /// Check if we have valid credentials
     func checkAuthenticationStatus() {
-        // Check Claude Code tokens first
+        // Check Monet's cached Claude Code token first
+        if let cached = try? keychain.readMonetTokens(for: Constants.Keychain.claudeCodeCache),
+           !cached.isExpired {
+            state = .authenticated(source: .claudeCode)
+            return
+        }
+
+        // Check Claude Code's original tokens
         if let credentials = try? keychain.readClaudeCodeCredentials(), !credentials.isExpired {
             state = .authenticated(source: .claudeCode)
             return
         }
 
-        // Check Monet's own tokens
+        // Check Monet's own OAuth tokens
         if let tokens = try? keychain.readMonetTokens(for: "default"), !tokens.isExpired {
             state = .authenticated(source: .monet)
             return
@@ -156,6 +134,33 @@ final class AuthenticationService: NSObject, ObservableObject {
             let codeChallenge = generateCodeChallenge(from: codeVerifier)
             let stateParam = generateRandomState()
 
+            // Start local HTTP server to receive callback (try multiple ports)
+            var server: LocalHTTPServer?
+            var boundPort: UInt16 = 0
+
+            for port in Self.callbackPorts {
+                let candidate = LocalHTTPServer(port: port)
+                do {
+                    try await candidate.start()
+                    server = candidate
+                    boundPort = port
+                    break
+                } catch {
+                    // Port in use, try next one
+                    continue
+                }
+            }
+
+            guard let server = server else {
+                throw AuthenticationError.failedToStart
+            }
+
+            self.httpServer = server
+
+            // Build redirect URI with the actual bound port
+            let redirectURI = "http://localhost:\(boundPort)/callback"
+            self.activeRedirectURI = redirectURI
+
             // Build authorization URL
             guard var components = URLComponents(string: Constants.API.authorizationEndpoint) else {
                 throw AuthenticationError.invalidURL
@@ -163,7 +168,7 @@ final class AuthenticationService: NSObject, ObservableObject {
 
             components.queryItems = [
                 URLQueryItem(name: "client_id", value: Constants.OAuth.clientID),
-                URLQueryItem(name: "redirect_uri", value: Constants.OAuth.redirectURI),
+                URLQueryItem(name: "redirect_uri", value: redirectURI),
                 URLQueryItem(name: "response_type", value: "code"),
                 URLQueryItem(name: "scope", value: Constants.OAuth.scopes),
                 URLQueryItem(name: "code_challenge", value: codeChallenge),
@@ -175,16 +180,11 @@ final class AuthenticationService: NSObject, ObservableObject {
                 throw AuthenticationError.invalidURL
             }
 
-            // Start local HTTP server to receive callback
-            let server = LocalHTTPServer(port: Constants.OAuth.callbackPort)
-            self.httpServer = server
-            try await server.start()
-
             // Open browser for authorization
             NSWorkspace.shared.open(authURL)
 
-            // Wait for callback
-            let receivedURL = try await server.waitForCallback()
+            // Wait for callback with timeout
+            let receivedURL = try await server.waitForCallback(timeout: Self.callbackTimeout)
 
             // Stop server immediately after receiving callback
             await server.stop()
@@ -216,7 +216,7 @@ final class AuthenticationService: NSObject, ObservableObject {
             // Save tokens
             try keychain.saveMonetTokens(tokens, for: "default")
 
-            // Update state - ensure this happens on MainActor
+            // Update state
             self.state = .authenticated(source: .monet)
             self.lastAuthError = nil
             self.isAuthenticating = false
@@ -240,6 +240,7 @@ final class AuthenticationService: NSObject, ObservableObject {
     /// Sign out
     func signOut() {
         try? keychain.deleteMonetTokens(for: "default")
+        try? keychain.deleteMonetTokens(for: Constants.Keychain.claudeCodeCache)
         state = .unauthenticated
         lastAuthError = nil
     }
@@ -265,7 +266,8 @@ final class AuthenticationService: NSObject, ObservableObject {
 
     private func exchangeCodeForTokens(code: String) async throws -> OAuthTokens {
         guard let url = URL(string: Constants.API.tokenEndpoint),
-              let codeVerifier = codeVerifier else {
+              let codeVerifier = codeVerifier,
+              let redirectURI = activeRedirectURI else {
             throw AuthenticationError.invalidURL
         }
 
@@ -278,7 +280,7 @@ final class AuthenticationService: NSObject, ObservableObject {
             "client_id=\(Constants.OAuth.clientID)",
             "code=\(code)",
             "code_verifier=\(codeVerifier)",
-            "redirect_uri=\(Constants.OAuth.redirectURI)"
+            "redirect_uri=\(redirectURI)"
         ].joined(separator: "&")
 
         request.httpBody = body.data(using: .utf8)
@@ -448,9 +450,19 @@ actor LocalHTTPServer {
         startContinuation = nil
     }
 
-    func waitForCallback() async throws -> URL {
+    func waitForCallback(timeout: TimeInterval = 120) async throws -> URL {
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
             self.callbackContinuation = continuation
+
+            // Schedule timeout
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                // If continuation hasn't been resumed yet, time out
+                if self.callbackContinuation != nil {
+                    self.callbackContinuation?.resume(throwing: AuthenticationError.authenticationTimedOut)
+                    self.callbackContinuation = nil
+                }
+            }
         }
     }
 
@@ -516,6 +528,9 @@ actor LocalHTTPServer {
     func stop() {
         listener?.cancel()
         listener = nil
+        // Cancel any pending callback continuation
+        callbackContinuation?.resume(throwing: AuthenticationError.userCancelled)
+        callbackContinuation = nil
     }
 }
 
@@ -546,13 +561,15 @@ enum AuthenticationError: LocalizedError {
     case tokenExchangeFailed(reason: String)
     case tokenRefreshFailed(reason: String?)
     case oauthError(Error)
+    case missingScope
+    case authenticationTimedOut
 
     var errorDescription: String? {
         switch self {
         case .noValidToken:
             return "No valid authentication token found"
         case .tokenExpired:
-            return "Authentication token has expired"
+            return "Authentication token has expired. Please run Claude Code to refresh your credentials, or sign in with OAuth."
         case .invalidURL:
             return "Invalid authentication URL"
         case .userCancelled:
@@ -560,7 +577,7 @@ enum AuthenticationError: LocalizedError {
         case .noCallbackURL:
             return "No callback URL received"
         case .failedToStart:
-            return "Failed to start authentication session"
+            return "Failed to start authentication. Another app may be using the required port. Try closing other apps and retry."
         case .invalidCallback:
             return "Invalid callback received"
         case .stateMismatch:
@@ -578,6 +595,10 @@ enum AuthenticationError: LocalizedError {
             return "Failed to refresh access token"
         case .oauthError(let error):
             return "OAuth error: \(error.localizedDescription)"
+        case .missingScope:
+            return "Claude Code credentials are missing the required scope. Please update Claude Code, then run 'claude logout' followed by 'claude login' to get new credentials."
+        case .authenticationTimedOut:
+            return "Authentication timed out. The browser may not have opened or the redirect failed. Please try again."
         }
     }
 }

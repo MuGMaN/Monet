@@ -133,6 +133,9 @@ final class UsageViewModel: ObservableObject {
             switch authError {
             case .noValidToken, .tokenExpired:
                 authState = .unauthenticated
+            case .missingScope:
+                // Claude Code credentials lack required scope - show as scope error
+                error = .insufficientScope(message: "OAuth token does not meet scope requirement user:profile")
             default:
                 error = .unknown(authError)
             }

@@ -13,6 +13,8 @@ struct UsagePanel: View {
             VStack(alignment: .leading, spacing: 0) {
                 if let error = viewModel.error, error.requiresSubscription {
                     subscriptionRequiredContent
+                } else if let error = viewModel.error, error.isScopeError {
+                    scopeErrorContent
                 } else if viewModel.isAuthenticated {
                     authenticatedContent
                 } else {
@@ -345,6 +347,96 @@ struct UsagePanel: View {
                     HStack {
                         Image(systemName: "arrow.up.circle.fill")
                         Text("Upgrade to Pro or Max")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(Color(.controlBackgroundColor))
+                    .foregroundColor(.primary)
+                    .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+
+                Button("Sign Out") {
+                    authService.signOut()
+                    viewModel.clearError()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .tint(.red)
+            }
+
+            Spacer()
+
+            quitButton
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
+    }
+
+    // MARK: - Scope Error Content
+
+    @ViewBuilder
+    private var scopeErrorContent: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            ZStack {
+                Circle()
+                    .fill(Color(.controlBackgroundColor))
+                    .frame(width: 80, height: 80)
+
+                Image(systemName: "key.slash")
+                    .font(.system(size: 36))
+                    .foregroundColor(.orange)
+            }
+
+            VStack(spacing: 8) {
+                Text("Credentials Need Update")
+                    .font(.system(.title3, weight: .semibold))
+
+                Text("Your Claude Code credentials are missing the required permissions (user:profile scope).")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(4)
+
+                Text("Update Claude Code to the latest version, then run:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Text("claude logout && claude login")
+                    .font(.system(.caption, design: .monospaced))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color(.controlBackgroundColor))
+                    .cornerRadius(6)
+            }
+
+            VStack(spacing: 12) {
+                Button(action: {
+                    viewModel.clearError()
+                    Task { await viewModel.refresh() }
+                }) {
+                    HStack {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Retry")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                Button(action: {
+                    viewModel.clearError()
+                    Task {
+                        authService.clearError()
+                        try? await authService.startOAuthFlow()
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "person.badge.key.fill")
+                        Text("Sign in with OAuth Instead")
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)

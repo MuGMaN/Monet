@@ -187,49 +187,6 @@ final class KeychainService {
         }
     }
 
-    /// Update Claude Code tokens after refresh
-    func updateClaudeCodeTokens(accessToken: String, refreshToken: String, expiresAt: Date) throws {
-        // Read existing credentials
-        let data = try read(service: Constants.Keychain.claudeCodeService)
-        guard let jsonString = String(data: data, encoding: .utf8),
-              let jsonData = jsonString.data(using: .utf8) else {
-            throw KeychainError.invalidItemFormat
-        }
-
-        // Decode, update, and re-encode
-        var credentials = try JSONDecoder().decode(ClaudeCodeCredentials.self, from: jsonData)
-        guard var oauth = credentials.claudeAiOauth else {
-            throw KeychainError.itemNotFound
-        }
-
-        oauth.accessToken = accessToken
-        oauth.refreshToken = refreshToken
-        oauth.expiresAt = Int64(expiresAt.timeIntervalSince1970 * 1000) // Convert to milliseconds
-        credentials.claudeAiOauth = oauth
-
-        // Save back
-        let updatedData = try JSONEncoder().encode(credentials)
-        guard let updatedString = String(data: updatedData, encoding: .utf8),
-              let finalData = updatedString.data(using: .utf8) else {
-            throw KeychainError.encodingError
-        }
-
-        // Delete and re-add (keychain doesn't have a simple update)
-        try? delete(service: Constants.Keychain.claudeCodeService)
-
-        let query: [String: AnyObject] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Constants.Keychain.claudeCodeService as AnyObject,
-            kSecValueData as String: finalData as AnyObject,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
-        ]
-
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw KeychainError.unexpectedStatus(status)
-        }
-    }
-
     // MARK: - Monet's Own Credentials
 
     /// Save Monet's OAuth tokens

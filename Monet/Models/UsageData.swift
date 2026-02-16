@@ -110,12 +110,15 @@ enum UsageAPIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidToken:
-            return "Invalid or expired authentication token"
+            return "Authentication token is invalid or expired. Try signing out and back in."
         case .noSubscription:
-            return "Claude Pro or Max subscription required"
+            return "Claude Pro or Max subscription required to view usage data."
         case .claudeCodeCredentialsRestricted:
             return "Claude Code credentials cannot be used with third-party apps. Please sign in with OAuth instead."
         case .insufficientScope(let message):
+            if let msg = message, msg.contains("user:profile") {
+                return "Your credentials are missing the required scope. Update Claude Code, then run 'claude logout' and 'claude login' in Terminal."
+            }
             if let msg = message, !msg.isEmpty {
                 return "Insufficient permissions: \(msg)"
             }
@@ -158,6 +161,14 @@ enum UsageAPIError: LocalizedError {
     /// Whether this error indicates the user needs a Pro/Max subscription
     var requiresSubscription: Bool {
         if case .noSubscription = self {
+            return true
+        }
+        return false
+    }
+
+    /// Whether this error indicates a missing OAuth scope
+    var isScopeError: Bool {
+        if case .insufficientScope = self {
             return true
         }
         return false

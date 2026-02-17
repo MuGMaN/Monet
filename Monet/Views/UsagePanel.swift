@@ -288,7 +288,7 @@ struct UsagePanel: View {
 
             Spacer()
 
-            quitButton
+            actionsView
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 20)
@@ -367,7 +367,7 @@ struct UsagePanel: View {
 
             Spacer()
 
-            quitButton
+            actionsView
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 20)
@@ -457,7 +457,7 @@ struct UsagePanel: View {
 
             Spacer()
 
-            quitButton
+            actionsView
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 20)
@@ -539,24 +539,6 @@ struct UsagePanel: View {
 
             Spacer()
 
-            Button(action: { NSApp.terminate(nil) }) {
-                Text("Quit")
-                    .font(.caption)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Color(.controlBackgroundColor))
-                    .cornerRadius(6)
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    // MARK: - Quit Button
-
-    @ViewBuilder
-    private var quitButton: some View {
-        HStack {
-            Spacer()
             Button(action: { NSApp.terminate(nil) }) {
                 Text("Quit")
                     .font(.caption)

@@ -82,20 +82,26 @@ final class AuthenticationService: NSObject, ObservableObject {
             return credentials.accessToken
         }
 
-        // Token is expired - try to refresh using the refresh token
-        guard let refreshToken = credentials.refreshToken else {
-            throw AuthenticationError.tokenExpired
+        // Token appears expired locally - try to refresh using the refresh token
+        if let refreshToken = credentials.refreshToken {
+            do {
+                let newTokens = try await refreshAccessToken(refreshToken: refreshToken)
+                // Cache refreshed token under Monet's own keychain service (NEVER modify Claude Code's entry)
+                try keychain.saveMonetTokens(newTokens, for: Constants.Keychain.claudeCodeCache)
+                return newTokens.accessToken
+            } catch {
+                #if DEBUG
+                print("⚠️ Claude Code token refresh failed: \(error.localizedDescription)")
+                #endif
+                // Refresh failed - fall through to try the token anyway
+            }
         }
 
-        do {
-            // Use the standard OAuth token endpoint (same as Monet's own refresh)
-            let newTokens = try await refreshAccessToken(refreshToken: refreshToken)
-            // Cache refreshed token under Monet's own keychain service (NEVER modify Claude Code's entry)
-            try keychain.saveMonetTokens(newTokens, for: Constants.Keychain.claudeCodeCache)
-            return newTokens.accessToken
-        } catch {
-            throw AuthenticationError.tokenExpired
-        }
+        // Last resort: return the token even if it appears expired locally.
+        // Claude Code may have refreshed it server-side, or the server may have
+        // a longer grace period than the local expiration check suggests.
+        // The API call will give a definitive 401 if it's truly invalid.
+        return credentials.accessToken
     }
 
     /// Check if we have valid credentials
@@ -107,8 +113,10 @@ final class AuthenticationService: NSObject, ObservableObject {
             return
         }
 
-        // Check Claude Code's original tokens
-        if let credentials = try? keychain.readClaudeCodeCredentials(), !credentials.isExpired {
+        // Check Claude Code's original tokens - accept even if locally expired,
+        // since we can try refreshing or the server may still accept them
+        if let credentials = try? keychain.readClaudeCodeCredentials(),
+           credentials.hasProfileScope {
             state = .authenticated(source: .claudeCode)
             return
         }
@@ -275,15 +283,13 @@ final class AuthenticationService: NSObject, ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
-        let body = [
-            "grant_type=authorization_code",
-            "client_id=\(Constants.OAuth.clientID)",
-            "code=\(code)",
-            "code_verifier=\(codeVerifier)",
-            "redirect_uri=\(redirectURI)"
-        ].joined(separator: "&")
-
-        request.httpBody = body.data(using: .utf8)
+        request.httpBody = formURLEncodedBody([
+            ("grant_type", "authorization_code"),
+            ("client_id", Constants.OAuth.clientID),
+            ("code", code),
+            ("code_verifier", codeVerifier),
+            ("redirect_uri", redirectURI)
+        ])
 
         let data: Data
         let response: URLResponse
@@ -339,13 +345,11 @@ final class AuthenticationService: NSObject, ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
-        let body = [
-            "grant_type=refresh_token",
-            "client_id=\(Constants.OAuth.clientID)",
-            "refresh_token=\(refreshToken)"
-        ].joined(separator: "&")
-
-        request.httpBody = body.data(using: .utf8)
+        request.httpBody = formURLEncodedBody([
+            ("grant_type", "refresh_token"),
+            ("client_id", Constants.OAuth.clientID),
+            ("refresh_token", refreshToken)
+        ])
 
         let data: Data
         let response: URLResponse
@@ -357,7 +361,19 @@ final class AuthenticationService: NSObject, ObservableObject {
 
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
-            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            let errorMessage: String
+            if let errorBody = String(data: data, encoding: .utf8), !errorBody.isEmpty {
+                #if DEBUG
+                print("⚠️ Token Refresh Error [\((response as? HTTPURLResponse)?.statusCode ?? 0)]: \(errorBody)")
+                #endif
+                if let errorJson = try? JSONDecoder().decode(OAuthErrorResponse.self, from: data) {
+                    errorMessage = errorJson.errorDescription ?? errorJson.error
+                } else {
+                    errorMessage = errorBody
+                }
+            } else {
+                errorMessage = "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
+            }
             throw AuthenticationError.tokenRefreshFailed(reason: errorMessage)
         }
 
@@ -369,6 +385,22 @@ final class AuthenticationService: NSObject, ObservableObject {
             expiresIn: TimeInterval(tokenResponse.expiresIn),
             tokenType: tokenResponse.tokenType ?? "Bearer"
         )
+    }
+
+    // MARK: - Form URL Encoding
+
+    /// Percent-encode a value for application/x-www-form-urlencoded body
+    private func formURLEncode(_ value: String) -> String {
+        // Only unreserved characters (RFC 3986) are left unencoded in form bodies
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+
+    /// Build a properly encoded application/x-www-form-urlencoded body
+    private func formURLEncodedBody(_ parameters: [(String, String)]) -> Data? {
+        parameters.map { "\(formURLEncode($0.0))=\(formURLEncode($0.1))" }
+            .joined(separator: "&")
+            .data(using: .utf8)
     }
 
     // MARK: - PKCE Helpers
@@ -477,6 +509,16 @@ actor LocalHTTPServer {
                     let parts = firstLine.components(separatedBy: " ")
                     if parts.count >= 2 {
                         let path = parts[1]
+
+                        // Only handle the OAuth callback path - ignore favicon and other requests
+                        guard path.hasPrefix("/callback") else {
+                            let notFound = "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
+                            connection.send(content: notFound.data(using: .utf8), completion: .contentProcessed { _ in
+                                connection.cancel()
+                            })
+                            return
+                        }
+
                         if let url = URL(string: "http://localhost:\(self.port)\(path)") {
                             // Send success response
                             let response = """

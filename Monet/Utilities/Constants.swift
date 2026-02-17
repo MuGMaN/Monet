@@ -5,7 +5,7 @@ enum Constants {
     enum API {
         static let usageEndpoint = "https://api.anthropic.com/api/oauth/usage"
         static let authorizationEndpoint = "https://claude.ai/oauth/authorize"
-        static let tokenEndpoint = "https://console.anthropic.com/api/oauth/token"
+        static let tokenEndpoint = "https://platform.claude.com/v1/oauth/token"
     }
 
     // MARK: - OAuth Configuration

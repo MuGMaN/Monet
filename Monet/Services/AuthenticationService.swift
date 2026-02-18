@@ -15,6 +15,7 @@ final class AuthenticationService: NSObject, ObservableObject {
 
     private let keychain = KeychainService.shared
     private var codeVerifier: String?
+    private var stateParam: String?
     private var activeRedirectURI: String?
     private var httpServer: LocalHTTPServer?
 
@@ -140,6 +141,7 @@ final class AuthenticationService: NSObject, ObservableObject {
             self.codeVerifier = codeVerifier
             let codeChallenge = generateCodeChallenge(from: codeVerifier)
             let stateParam = generateRandomState()
+            self.stateParam = stateParam
 
             // Start local HTTP server to receive callback (try multiple ports)
             var server: LocalHTTPServer?
@@ -174,9 +176,10 @@ final class AuthenticationService: NSObject, ObservableObject {
             }
 
             components.queryItems = [
+                URLQueryItem(name: "code", value: "true"),
                 URLQueryItem(name: "client_id", value: Constants.OAuth.clientID),
-                URLQueryItem(name: "redirect_uri", value: redirectURI),
                 URLQueryItem(name: "response_type", value: "code"),
+                URLQueryItem(name: "redirect_uri", value: redirectURI),
                 URLQueryItem(name: "scope", value: Constants.OAuth.scopes),
                 URLQueryItem(name: "code_challenge", value: codeChallenge),
                 URLQueryItem(name: "code_challenge_method", value: "S256"),
@@ -274,6 +277,7 @@ final class AuthenticationService: NSObject, ObservableObject {
     private func exchangeCodeForTokens(code: String) async throws -> OAuthTokens {
         guard let url = URL(string: Constants.API.tokenEndpoint),
               let codeVerifier = codeVerifier,
+              let stateParam = stateParam,
               let redirectURI = activeRedirectURI else {
             throw AuthenticationError.invalidURL
         }
@@ -282,13 +286,14 @@ final class AuthenticationService: NSObject, ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Claude Code's token endpoint expects JSON body for authorization_code exchange
+        // Match Claude Code's exact token exchange body (X19 function)
         let body: [String: String] = [
             "grant_type": "authorization_code",
-            "client_id": Constants.OAuth.clientID,
             "code": code,
+            "redirect_uri": redirectURI,
+            "client_id": Constants.OAuth.clientID,
             "code_verifier": codeVerifier,
-            "redirect_uri": redirectURI
+            "state": stateParam
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
@@ -350,13 +355,16 @@ final class AuthenticationService: NSObject, ObservableObject {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        request.httpBody = formURLEncodedBody([
-            ("grant_type", "refresh_token"),
-            ("client_id", Constants.OAuth.clientID),
-            ("refresh_token", refreshToken)
-        ])
+        // Match Claude Code's exact refresh body (E19 function) - JSON with scope
+        let body: [String: String] = [
+            "grant_type": "refresh_token",
+            "refresh_token": refreshToken,
+            "client_id": Constants.OAuth.clientID,
+            "scope": Constants.OAuth.scopes
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         let data: Data
         let response: URLResponse

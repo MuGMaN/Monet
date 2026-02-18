@@ -268,7 +268,7 @@ struct UsagePanel: View {
                         Button("Use Claude Code Credentials") {
                             authService.clearError()
                             authService.checkAuthenticationStatus()
-                            Task { await viewModel.refresh() }
+                            Task { await viewModel.refresh(userInitiated: true) }
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.regular)
@@ -332,7 +332,7 @@ struct UsagePanel: View {
                 // Retry button for recently upgraded users
                 Button(action: {
                     viewModel.clearError()
-                    Task { await viewModel.refresh() }
+                    Task { await viewModel.refresh(userInitiated: true) }
                 }) {
                     HStack {
                         Image(systemName: "arrow.clockwise")
@@ -416,7 +416,7 @@ struct UsagePanel: View {
             VStack(spacing: 12) {
                 Button(action: {
                     viewModel.clearError()
-                    Task { await viewModel.refresh() }
+                    Task { await viewModel.refresh(userInitiated: true) }
                 }) {
                     HStack {
                         Image(systemName: "arrow.clockwise")
@@ -485,7 +485,7 @@ struct UsagePanel: View {
             Spacer()
 
             Button(action: {
-                Task { await viewModel.refresh() }
+                Task { await viewModel.refresh(userInitiated: true) }
             }) {
                 if viewModel.isLoading {
                     ProgressView()

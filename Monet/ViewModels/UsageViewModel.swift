@@ -51,6 +51,7 @@ final class UsageViewModel: ObservableObject {
     private let authService: AuthenticationService
     private var refreshTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
+    private var isRefreshing = false
 
     // MARK: - Initialization
 
@@ -73,8 +74,9 @@ final class UsageViewModel: ObservableObject {
         let savedInterval = UserDefaults.standard.double(forKey: "refreshInterval")
         self.refreshInterval = savedInterval > 0 ? savedInterval : Constants.Timing.defaultRefreshInterval
 
-        // Observe auth state
+        // Observe auth state (removeDuplicates prevents re-firing when state is set to the same value)
         authService.$state
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 self?.authState = state
@@ -107,11 +109,18 @@ final class UsageViewModel: ObservableObject {
         refreshTimer = nil
     }
 
-    func refresh() async {
-        guard !isLoading else { return }
+    func refresh(userInitiated: Bool = false) async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
 
-        isLoading = true
-        error = nil
+        // Quiet mode: when auto-retrying with a non-recoverable error, don't flash
+        // the loading spinner or clear the error message. Only update UI on success.
+        let quietMode = !userInitiated && error != nil && !(error?.isRecoverable ?? true)
+
+        if !quietMode {
+            isLoading = true
+            error = nil
+        }
 
         do {
             let token = try await authService.getAccessToken()
@@ -123,27 +132,38 @@ final class UsageViewModel: ObservableObject {
             sonnetUsage = response.sevenDaySonnet
             lastUpdated = Date()
             error = nil
+            isLoading = false
 
         } catch let apiError as UsageAPIError {
-            error = apiError
-            if case .invalidToken = apiError {
-                authService.checkAuthenticationStatus()
+            if !quietMode {
+                error = apiError
+                isLoading = false
             }
         } catch let authError as AuthenticationError {
             switch authError {
             case .noValidToken, .tokenExpired:
                 authState = .unauthenticated
+                error = nil
+                isLoading = false
             case .missingScope:
-                // Claude Code credentials lack required scope - show as scope error
-                error = .insufficientScope(message: "OAuth token does not meet scope requirement user:profile")
+                if !quietMode {
+                    error = .insufficientScope(message: "OAuth token does not meet scope requirement user:profile")
+                    isLoading = false
+                }
             default:
-                error = .unknown(authError)
+                if !quietMode {
+                    error = .unknown(authError)
+                    isLoading = false
+                }
             }
         } catch {
-            self.error = .unknown(error)
+            if !quietMode {
+                self.error = .unknown(error)
+                isLoading = false
+            }
         }
 
-        isLoading = false
+        isRefreshing = false
     }
 
     func clearError() {

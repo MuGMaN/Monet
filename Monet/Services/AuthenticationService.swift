@@ -97,11 +97,9 @@ final class AuthenticationService: NSObject, ObservableObject {
             }
         }
 
-        // Last resort: return the token even if it appears expired locally.
-        // Claude Code may have refreshed it server-side, or the server may have
-        // a longer grace period than the local expiration check suggests.
-        // The API call will give a definitive 401 if it's truly invalid.
-        return credentials.accessToken
+        // Token is expired and refresh failed - don't return it.
+        // Returning expired tokens causes guaranteed 401s that can trigger rapid retry loops.
+        throw AuthenticationError.tokenExpired
     }
 
     /// Check if we have valid credentials

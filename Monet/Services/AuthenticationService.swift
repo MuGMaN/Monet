@@ -94,14 +94,12 @@ final class AuthenticationService: NSObject, ObservableObject {
                 #if DEBUG
                 print("⚠️ Claude Code token refresh failed: \(error.localizedDescription)")
                 #endif
-                // Refresh failed - fall through to try the token anyway
             }
         }
 
-        // Last resort: return the token even if it appears expired locally.
-        // Claude Code may have refreshed it and the keychain expiresAt is stale.
-        // The retry loop is prevented by removeDuplicates + quiet retry mode in the ViewModel.
-        return credentials.accessToken
+        // Token is expired and refresh failed - throw so getAccessToken() falls through
+        // to try Monet's own OAuth token instead of returning a known-bad token
+        throw AuthenticationError.tokenExpired
     }
 
     /// Check if we have valid credentials
@@ -113,10 +111,10 @@ final class AuthenticationService: NSObject, ObservableObject {
             return
         }
 
-        // Check Claude Code's original tokens - accept even if locally expired,
-        // since we can try refreshing or the server may still accept them
+        // Check Claude Code's original tokens - only accept if not expired
         if let credentials = try? keychain.readClaudeCodeCredentials(),
-           credentials.hasProfileScope {
+           credentials.hasProfileScope,
+           !credentials.isExpired {
             state = .authenticated(source: .claudeCode)
             return
         }

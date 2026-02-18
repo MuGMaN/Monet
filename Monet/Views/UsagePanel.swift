@@ -502,16 +502,44 @@ struct UsagePanel: View {
             .help("Refresh usage data")
         }
 
-        // Error display
+        // Error display with recovery options
         if let error = viewModel.error {
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(.orange)
-                    .font(.caption)
-                Text(error.localizedDescription)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
+            VStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.caption)
+                    Text(error.localizedDescription)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+
+                HStack(spacing: 8) {
+                    Button(action: {
+                        viewModel.clearError()
+                        Task {
+                            authService.clearError()
+                            try? await authService.startOAuthFlow()
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "person.badge.key.fill")
+                            Text("Sign in with OAuth")
+                        }
+                        .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Button("Sign Out") {
+                        authService.signOut()
+                        viewModel.clearError()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(.red)
+                }
             }
             .padding(.top, 8)
         }

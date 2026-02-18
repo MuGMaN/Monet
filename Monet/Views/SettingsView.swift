@@ -176,8 +176,8 @@ struct SettingsView: View {
                 Spacer()
             }
         }
-        .padding(20)
-        .frame(width: 380, height: 600)
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             loadLaunchAtLoginState()
         }
@@ -231,7 +231,7 @@ struct SettingsSection<Content: View>: View {
             VStack(alignment: .leading, spacing: 12) {
                 content
             }
-            .padding(12)
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(.controlBackgroundColor))
             .cornerRadius(8)

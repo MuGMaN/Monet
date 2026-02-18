@@ -220,6 +220,11 @@ extension UsageViewModel {
         return false
     }
 
+    /// Whether the user has weekly limits (Max users have them, Pro users don't)
+    var hasWeeklyLimits: Bool {
+        weeklyUsage != nil || opusUsage != nil || sonnetUsage != nil
+    }
+
     /// Whether Claude Code credentials have been restricted by Anthropic
     var isClaudeCodeRestricted: Bool {
         error?.isClaudeCodeRestricted ?? false

@@ -24,11 +24,16 @@ final class SettingsWindowController {
 
         // Create the window
         let hostingController = NSHostingController(rootView: settingsView)
+        // Prevent NSHostingController from auto-sizing the window based on SwiftUI's
+        // ideal size, which can vary across display configurations and macOS versions
+        hostingController.sizingOptions = []
 
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Monet Settings"
         window.styleMask = [.titled, .closable]
         window.setContentSize(NSSize(width: 380, height: 600))
+        window.contentMinSize = NSSize(width: 380, height: 600)
+        window.contentMaxSize = NSSize(width: 380, height: 600)
         window.center()
         window.isReleasedWhenClosed = false
 

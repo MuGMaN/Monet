@@ -48,51 +48,50 @@ struct UsagePanel: View {
             }
         }
 
-        Spacer().frame(height: 16)
+        // Weekly Limits Section - only shown for Max users who have weekly data
+        if viewModel.hasWeeklyLimits {
+            Spacer().frame(height: 16)
 
-        // Weekly Limits Section
-        weeklyLimitsSection
-            .padding(.bottom, 12)
+            weeklyLimitsSection
+                .padding(.bottom, 12)
 
-        // Weekly usage cards
-        UsageCard {
-            VStack(spacing: 16) {
-                // All Models
-                if let weekly = viewModel.weeklyUsage {
-                    UsageRow(
-                        title: "All models",
-                        subtitle: formatWeeklySubtitle(weekly),
-                        percentage: weekly.utilization,
-                        color: colorForUsage(weekly.utilization)
-                    )
-                } else if viewModel.isLoading {
-                    loadingRow(title: "All models")
-                }
+            UsageCard {
+                VStack(spacing: 16) {
+                    // All Models
+                    if let weekly = viewModel.weeklyUsage {
+                        UsageRow(
+                            title: "All models",
+                            subtitle: formatWeeklySubtitle(weekly),
+                            percentage: weekly.utilization,
+                            color: colorForUsage(weekly.utilization)
+                        )
+                    }
 
-                // Sonnet Only
-                if let sonnet = viewModel.sonnetUsage {
-                    Divider()
-                    UsageRow(
-                        title: "Sonnet only",
-                        subtitle: sonnet.utilization > 0
-                            ? formatWeeklySubtitle(sonnet)
-                            : "You haven't used Sonnet yet",
-                        percentage: sonnet.utilization,
-                        color: .teal
-                    )
-                }
+                    // Sonnet Only
+                    if let sonnet = viewModel.sonnetUsage {
+                        Divider()
+                        UsageRow(
+                            title: "Sonnet only",
+                            subtitle: sonnet.utilization > 0
+                                ? formatWeeklySubtitle(sonnet)
+                                : "You haven't used Sonnet yet",
+                            percentage: sonnet.utilization,
+                            color: .teal
+                        )
+                    }
 
-                // Opus Only
-                if let opus = viewModel.opusUsage {
-                    Divider()
-                    UsageRow(
-                        title: "Opus only",
-                        subtitle: opus.utilization > 0
-                            ? formatWeeklySubtitle(opus)
-                            : "You haven't used Opus yet",
-                        percentage: opus.utilization,
-                        color: .purple
-                    )
+                    // Opus Only
+                    if let opus = viewModel.opusUsage {
+                        Divider()
+                        UsageRow(
+                            title: "Opus only",
+                            subtitle: opus.utilization > 0
+                                ? formatWeeklySubtitle(opus)
+                                : "You haven't used Opus yet",
+                            percentage: opus.utilization,
+                            color: .purple
+                        )
+                    }
                 }
             }
         }

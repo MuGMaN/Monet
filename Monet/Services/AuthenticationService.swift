@@ -97,9 +97,10 @@ final class AuthenticationService: NSObject, ObservableObject {
             }
         }
 
-        // Token is expired and refresh failed - don't return it.
-        // Returning expired tokens causes guaranteed 401s that can trigger rapid retry loops.
-        throw AuthenticationError.tokenExpired
+        // Last resort: return the token even if it appears expired locally.
+        // Claude Code may have refreshed it and the keychain expiresAt is stale.
+        // The retry loop is prevented by removeDuplicates + quiet retry mode in the ViewModel.
+        return credentials.accessToken
     }
 
     /// Check if we have valid credentials
@@ -279,15 +280,17 @@ final class AuthenticationService: NSObject, ObservableObject {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        request.httpBody = formURLEncodedBody([
-            ("grant_type", "authorization_code"),
-            ("client_id", Constants.OAuth.clientID),
-            ("code", code),
-            ("code_verifier", codeVerifier),
-            ("redirect_uri", redirectURI)
-        ])
+        // Claude Code's token endpoint expects JSON body for authorization_code exchange
+        let body: [String: String] = [
+            "grant_type": "authorization_code",
+            "client_id": Constants.OAuth.clientID,
+            "code": code,
+            "code_verifier": codeVerifier,
+            "redirect_uri": redirectURI
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         let data: Data
         let response: URLResponse
@@ -309,9 +312,15 @@ final class AuthenticationService: NSObject, ObservableObject {
                 #if DEBUG
                 print("⚠️ Token Exchange Error [\(httpResponse.statusCode)]: \(errorBody)")
                 #endif
-                // Try to parse as JSON error
+                // Try standard OAuth error format: {"error": "...", "error_description": "..."}
                 if let errorJson = try? JSONDecoder().decode(OAuthErrorResponse.self, from: data) {
                     errorMessage = errorJson.errorDescription ?? errorJson.error
+                }
+                // Try Anthropic API error format: {"type": "error", "error": {"type": "...", "message": "..."}}
+                else if let apiError = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                        let errorObj = apiError["error"] as? [String: Any],
+                        let message = errorObj["message"] as? String {
+                    errorMessage = message
                 } else {
                     errorMessage = errorBody
                 }

@@ -42,17 +42,12 @@ struct SettingsView: View {
 
                 // Refresh Interval Section
                 SettingsSection(title: "Refresh Interval") {
-                    HStack {
-                        Slider(
-                            value: $viewModel.refreshInterval,
-                            in: Constants.Timing.minimumRefreshInterval...Constants.Timing.maximumRefreshInterval,
-                            step: 30
-                        )
-                        Text("\(Int(viewModel.refreshInterval))s")
-                            .font(.system(.body, design: .monospaced))
-                            .frame(width: 50)
-                            .foregroundColor(.secondary)
+                    Picker("Refresh every", selection: $viewModel.refreshInterval) {
+                        ForEach(RefreshInterval.allCases, id: \.self) { interval in
+                            Text(interval.label).tag(interval)
+                        }
                     }
+                    .labelsHidden()
                     Text("How often to fetch usage data from the API")
                         .font(.caption)
                         .foregroundColor(.secondary)

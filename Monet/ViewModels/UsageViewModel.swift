@@ -38,9 +38,9 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
-    @Published var refreshInterval: TimeInterval {
+    @Published var refreshInterval: RefreshInterval {
         didSet {
-            UserDefaults.standard.set(refreshInterval, forKey: "refreshInterval")
+            UserDefaults.standard.set(refreshInterval.rawValue, forKey: "refreshInterval")
             restartTimer()
         }
     }
@@ -52,6 +52,7 @@ final class UsageViewModel: ObservableObject {
     private var refreshTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
     private var isRefreshing = false
+    private var consecutiveRateLimits = 0
 
     // MARK: - Initialization
 
@@ -72,7 +73,7 @@ final class UsageViewModel: ObservableObject {
         }
 
         let savedInterval = UserDefaults.standard.double(forKey: "refreshInterval")
-        self.refreshInterval = savedInterval > 0 ? savedInterval : Constants.Timing.defaultRefreshInterval
+        self.refreshInterval = savedInterval > 0 ? RefreshInterval.closest(to: savedInterval) : .default
 
         // Observe auth state (removeDuplicates prevents re-firing when state is set to the same value)
         authService.$state
@@ -124,7 +125,7 @@ final class UsageViewModel: ObservableObject {
 
         do {
             let token = try await authService.getAccessToken()
-            let response = try await apiService.fetchUsage(token: token)
+            let response = try await fetchWithRateLimitRecovery(token: token)
 
             sessionUsage = response.fiveHour
             weeklyUsage = response.sevenDay
@@ -133,8 +134,16 @@ final class UsageViewModel: ObservableObject {
             lastUpdated = Date()
             error = nil
             isLoading = false
+            // If we were in backoff mode, restore normal polling interval
+            if consecutiveRateLimits > 0 {
+                consecutiveRateLimits = 0
+                restartTimer()
+            }
 
         } catch let apiError as UsageAPIError {
+            if case .rateLimited = apiError {
+                handleRateLimitBackoff()
+            }
             if !quietMode {
                 error = apiError
                 isLoading = false
@@ -166,6 +175,50 @@ final class UsageViewModel: ObservableObject {
         isRefreshing = false
     }
 
+    /// Attempt the fetch; if rate limited, refresh the token and retry once.
+    /// The usage API rate limit is per-access-token (~5 requests), so a fresh
+    /// token gets a fresh rate limit window.
+    private func fetchWithRateLimitRecovery(token: String) async throws -> UsageResponse {
+        do {
+            return try await apiService.fetchUsage(token: token)
+        } catch let apiError as UsageAPIError {
+            guard case .rateLimited = apiError else { throw apiError }
+
+            // Token's rate limit exhausted — refresh to get a new window
+            #if DEBUG
+            print("🔄 Rate limited on usage API, refreshing token...")
+            #endif
+
+            do {
+                let newToken = try await authService.forceTokenRefresh()
+                return try await apiService.fetchUsage(token: newToken)
+            } catch {
+                // If refresh failed or still rate limited, surface the original 429
+                throw apiError
+            }
+        }
+    }
+
+    /// Back off polling when we keep hitting rate limits.
+    private func handleRateLimitBackoff() {
+        consecutiveRateLimits += 1
+        // Exponential backoff: 60s, 120s, 240s, capped at 1hr
+        let backoff = min(
+            Constants.Timing.maximumRefreshInterval,
+            refreshInterval.rawValue * pow(2.0, Double(consecutiveRateLimits - 1))
+        )
+        #if DEBUG
+        print("⏳ Rate limit backoff: \(backoff)s (consecutive: \(consecutiveRateLimits))")
+        #endif
+        refreshTimer?.invalidate()
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: backoff, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                await self?.refresh()
+            }
+        }
+    }
+
+
     func clearError() {
         error = nil
     }
@@ -174,7 +227,7 @@ final class UsageViewModel: ObservableObject {
 
     private func restartTimer() {
         refreshTimer?.invalidate()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval.rawValue, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 await self?.refresh()
             }

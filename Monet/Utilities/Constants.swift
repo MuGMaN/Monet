@@ -34,9 +34,8 @@ enum Constants {
 
     // MARK: - Timing
     enum Timing {
-        static let defaultRefreshInterval: TimeInterval = 30  // 30 seconds
-        static let minimumRefreshInterval: TimeInterval = 10  // 10 seconds
-        static let maximumRefreshInterval: TimeInterval = 300 // 5 minutes
+        static let defaultRefreshInterval: TimeInterval = 60  // 60 seconds
+        static let maximumRefreshInterval: TimeInterval = 3600 // 1 hour (backoff cap)
     }
 
     // MARK: - Notifications
@@ -48,5 +47,38 @@ enum Constants {
     enum App {
         static let bundleID = "com.monet.usage-monitor"
         static let name = "Monet"
+    }
+}
+
+// MARK: - Refresh Interval Presets
+
+enum RefreshInterval: TimeInterval, CaseIterable, Codable {
+    case tenSeconds = 10
+    case thirtySeconds = 30
+    case oneMinute = 60
+    case threeMinutes = 180
+    case fiveMinutes = 300
+    case tenMinutes = 600
+    case thirtyMinutes = 1800
+    case oneHour = 3600
+
+    var label: String {
+        switch self {
+        case .tenSeconds: return "10 seconds"
+        case .thirtySeconds: return "30 seconds"
+        case .oneMinute: return "1 minute"
+        case .threeMinutes: return "3 minutes"
+        case .fiveMinutes: return "5 minutes"
+        case .tenMinutes: return "10 minutes"
+        case .thirtyMinutes: return "30 minutes"
+        case .oneHour: return "1 hour"
+        }
+    }
+
+    static let `default`: RefreshInterval = .oneMinute
+
+    /// Find the closest preset for a saved TimeInterval value
+    static func closest(to interval: TimeInterval) -> RefreshInterval {
+        allCases.min(by: { abs($0.rawValue - interval) < abs($1.rawValue - interval) }) ?? .default
     }
 }

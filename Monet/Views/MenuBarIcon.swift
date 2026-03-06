@@ -16,7 +16,8 @@ struct MenuBarIcon: View {
         let mode = viewModel.displayMode.rawValue
         let pct = Int(viewModel.sessionPercentage)
         let time = viewModel.sessionTimeRemaining ?? ""
-        return "\(mode)-\(pct)-\(time)"
+        let rl = viewModel.isRateLimited
+        return "\(mode)-\(pct)-\(time)-\(rl)"
     }
 
     /// Creates the complete menu bar image with gauge and text
@@ -44,14 +45,18 @@ struct MenuBarIcon: View {
 
         image.lockFocus()
 
-        // Draw circular progress gauge
+        // Draw gauge or rate limit indicator
         let gaugeRect = NSRect(
             x: padding,
             y: (totalHeight - gaugeSize) / 2,
             width: gaugeSize,
             height: gaugeSize
         )
-        drawCircularProgress(in: gaugeRect, progress: viewModel.sessionPercentage / 100)
+        if viewModel.isRateLimited {
+            drawPauseIndicator(in: gaugeRect)
+        } else {
+            drawCircularProgress(in: gaugeRect, progress: viewModel.sessionPercentage / 100)
+        }
 
         // Draw text
         let textRect = NSRect(
@@ -125,6 +130,30 @@ struct MenuBarIcon: View {
             progressPath.lineCapStyle = .round
             progressPath.stroke()
         }
+    }
+
+    /// Draws a pause icon inside a circle to indicate rate limiting
+    private func drawPauseIndicator(in rect: NSRect) {
+        let center = NSPoint(x: rect.midX, y: rect.midY)
+        let radius = min(rect.width, rect.height) / 2 - 1.5
+        let lineWidth: CGFloat = 2.5
+
+        // Background circle in yellow/orange
+        NSColor.systemYellow.withAlphaComponent(0.4).setStroke()
+        let bgPath = NSBezierPath()
+        bgPath.appendArc(withCenter: center, radius: radius, startAngle: 0, endAngle: 360)
+        bgPath.lineWidth = lineWidth
+        bgPath.stroke()
+
+        // Two pause bars
+        let barWidth: CGFloat = 2.0
+        let barHeight: CGFloat = rect.height * 0.4
+        let gap: CGFloat = 2.5
+        let barY = rect.midY - barHeight / 2
+
+        NSColor.systemYellow.setFill()
+        NSRect(x: rect.midX - gap / 2 - barWidth, y: barY, width: barWidth, height: barHeight).fill()
+        NSRect(x: rect.midX + gap / 2, y: barY, width: barWidth, height: barHeight).fill()
     }
 
     /// Returns color based on progress level

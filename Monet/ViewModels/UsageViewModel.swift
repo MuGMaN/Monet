@@ -282,4 +282,12 @@ extension UsageViewModel {
     var isClaudeCodeRestricted: Bool {
         error?.isClaudeCodeRestricted ?? false
     }
+
+    /// Whether the app is currently rate limited
+    var isRateLimited: Bool {
+        if case .rateLimited = error {
+            return true
+        }
+        return false
+    }
 }

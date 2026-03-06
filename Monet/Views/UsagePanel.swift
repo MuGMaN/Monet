@@ -501,8 +501,34 @@ struct UsagePanel: View {
             .help("Refresh usage data")
         }
 
-        // Error display with recovery options
-        if let error = viewModel.error {
+        // Rate limit notice with session reset time
+        if viewModel.isRateLimited {
+            VStack(spacing: 4) {
+                HStack(spacing: 6) {
+                    Image(systemName: "pause.circle.fill")
+                        .foregroundColor(.yellow)
+                        .font(.caption)
+                    Text("Rate limited — data may be stale")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                if let resetsAt = viewModel.sessionUsage?.resetsAt,
+                   let resetTime = TimeFormatter.parseISO(resetsAt) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock")
+                            .foregroundColor(.secondary)
+                            .font(.caption2)
+                        Text("Session resets at \(resetTime.formatted(date: .omitted, time: .shortened))")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding(.top, 8)
+        }
+
+        // Error display with recovery options (non-rate-limit errors)
+        if let error = viewModel.error, !viewModel.isRateLimited {
             VStack(spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")

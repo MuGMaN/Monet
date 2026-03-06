@@ -503,7 +503,7 @@ struct UsagePanel: View {
 
         // Rate limit notice with session reset time
         if viewModel.isRateLimited {
-            VStack(spacing: 4) {
+            VStack(spacing: 6) {
                 HStack(spacing: 6) {
                     Image(systemName: "pause.circle.fill")
                         .foregroundColor(.yellow)
@@ -511,6 +511,19 @@ struct UsagePanel: View {
                     Text("Rate limited — data may be stale")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                    Spacer()
+                    Button(action: {
+                        viewModel.clearError()
+                        Task { await viewModel.refresh(userInitiated: true) }
+                    }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Retry")
+                        }
+                        .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
                 }
                 if let resetsAt = viewModel.sessionUsage?.resetsAt,
                    let resetTime = TimeFormatter.parseISO(resetsAt) {
@@ -521,6 +534,7 @@ struct UsagePanel: View {
                         Text("Session resets at \(resetTime.formatted(date: .omitted, time: .shortened))")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                        Spacer()
                     }
                 }
             }
@@ -624,6 +638,9 @@ struct UsagePanel: View {
 
     private func formatSessionSubtitle(_ metric: UsageMetric) -> String {
         if let timeRemaining = TimeFormatter.formatCountdown(from: metric.resetsAt) {
+            if let dateTime = TimeFormatter.formatDateTime(from: metric.resetsAt) {
+                return "Resets in \(timeRemaining) (\(dateTime))"
+            }
             return "Resets in \(timeRemaining)"
         }
         return "Reset time unknown"

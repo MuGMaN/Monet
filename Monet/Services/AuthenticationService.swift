@@ -247,32 +247,51 @@ final class AuthenticationService: NSObject, ObservableObject {
 
     /// Force-refresh the current token to get a fresh rate limit window.
     /// Returns the new access token, or throws if refresh isn't possible.
+    /// Each source is tried independently — a failure in one doesn't block the others.
     func forceTokenRefresh() async throws -> String {
         // Try refreshing Monet's cached Claude Code token
         if let cached = try? keychain.readMonetTokens(for: Constants.Keychain.claudeCodeCache),
            let refreshToken = cached.refreshToken {
-            let newTokens = try await refreshAccessToken(refreshToken: refreshToken)
-            try keychain.saveMonetTokens(newTokens, for: Constants.Keychain.claudeCodeCache)
-            return newTokens.accessToken
+            do {
+                let newTokens = try await refreshAccessToken(refreshToken: refreshToken)
+                try keychain.saveMonetTokens(newTokens, for: Constants.Keychain.claudeCodeCache)
+                return newTokens.accessToken
+            } catch {
+                #if DEBUG
+                print("⚠️ Claude Code cache token refresh failed: \(error.localizedDescription)")
+                #endif
+            }
         }
 
         // Try refreshing Claude Code's original credentials
         if let credentials = try? keychain.readClaudeCodeCredentials(),
            let refreshToken = credentials.refreshToken {
-            let newTokens = try await refreshAccessToken(refreshToken: refreshToken)
-            try keychain.saveMonetTokens(newTokens, for: Constants.Keychain.claudeCodeCache)
-            return newTokens.accessToken
+            do {
+                let newTokens = try await refreshAccessToken(refreshToken: refreshToken)
+                try keychain.saveMonetTokens(newTokens, for: Constants.Keychain.claudeCodeCache)
+                return newTokens.accessToken
+            } catch {
+                #if DEBUG
+                print("⚠️ Claude Code original token refresh failed: \(error.localizedDescription)")
+                #endif
+            }
         }
 
         // Try refreshing Monet's own OAuth token
         if let tokens = try? keychain.readMonetTokens(for: "default"),
            let refreshToken = tokens.refreshToken {
-            let newTokens = try await refreshAccessToken(refreshToken: refreshToken)
-            try keychain.saveMonetTokens(newTokens, for: "default")
-            return newTokens.accessToken
+            do {
+                let newTokens = try await refreshAccessToken(refreshToken: refreshToken)
+                try keychain.saveMonetTokens(newTokens, for: "default")
+                return newTokens.accessToken
+            } catch {
+                #if DEBUG
+                print("⚠️ Monet OAuth token refresh failed: \(error.localizedDescription)")
+                #endif
+            }
         }
 
-        throw AuthenticationError.tokenRefreshFailed(reason: "No refresh token available")
+        throw AuthenticationError.tokenRefreshFailed(reason: "All token refresh attempts failed")
     }
 
     /// Sign out

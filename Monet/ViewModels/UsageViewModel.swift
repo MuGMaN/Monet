@@ -192,7 +192,10 @@ final class UsageViewModel: ObservableObject {
             do {
                 let newToken = try await authService.forceTokenRefresh()
                 return try await apiService.fetchUsage(token: newToken)
-            } catch {
+            } catch let retryError {
+                #if DEBUG
+                print("⚠️ Rate limit recovery failed: \(retryError.localizedDescription)")
+                #endif
                 // If refresh failed or still rate limited, surface the original 429
                 throw apiError
             }

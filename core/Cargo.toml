@@ -1,0 +1,19 @@
+[package]
+name = "monet-core"
+version = "0.1.0"
+edition = "2021"
+description = "Shared cross-platform core for Monet: Claude usage monitoring (models, usage API, OAuth). Platform shells (macOS SwiftUI, Tauri desktop) build UI on top of this."
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# rustls (not native OpenSSL) so the core links cleanly on every platform and
+# inside a portable AppImage without a system libssl dependency.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+thiserror = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+dirs = "5"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }

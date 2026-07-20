@@ -64,3 +64,9 @@ CLAUDE.md
 *.secret
 credentials.json
 
+# Rust / Tauri (cross-platform apps: core/, desktop/)
+target/
+
+# graphify (local knowledge-graph artifact, not part of the app)
+graphify-out/
+

@@ -5,19 +5,221 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Monet</title>
     <style>
-      body {
-        margin: 0;
-        font-family: -apple-system, "Segoe UI", Ubuntu, sans-serif;
-        background: #1c1c1e;
-        color: #f2f2f7;
-        padding: 20px;
+      :root {
+        --bg: #1c1c1e;
+        --card: rgba(118, 118, 128, 0.16);
+        --text: #f5f5f7;
+        --secondary: #98989f;
+        --separator: rgba(120, 120, 128, 0.34);
+        --blue: #0a84ff;
+        --orange: #ff9f0a;
+        --red: #ff453a;
+        --teal: #40cbe0;
+        --purple: #bf5af2;
+        --green: #30d158;
       }
-      h1 { font-size: 16px; margin: 0 0 8px; }
-      p { font-size: 13px; color: #8e8e93; margin: 0; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        width: 360px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, system-ui, "Segoe UI", Ubuntu, sans-serif;
+        font-size: 13px;
+        -webkit-user-select: none;
+        user-select: none;
+        overflow: hidden;
+      }
+      .panel { padding: 20px; }
+
+      /* Header */
+      header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+      header img { width: 44px; height: 44px; border-radius: 10px; }
+      .titles { flex: 1; min-width: 0; }
+      .title { font-size: 15px; font-weight: 600; }
+      .status { font-size: 12px; margin-top: 2px; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+      /* Cards + rows */
+      .card { background: var(--card); border-radius: 10px; padding: 14px; }
+      .section-head {
+        display: flex; align-items: center; justify-content: space-between;
+        margin: 16px 0 12px;
+      }
+      .section-head .label { font-size: 13px; font-weight: 500; color: var(--secondary); }
+      .section-head a { font-size: 12px; color: var(--blue); text-decoration: none; }
+
+      .row + .row { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--separator); }
+      .row-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+      .row-title { font-size: 13px; font-weight: 500; }
+      .row-sub { font-size: 12px; color: var(--secondary); margin-top: 3px; }
+      .badge {
+        font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums;
+        padding: 4px 8px; border-radius: 6px; white-space: nowrap;
+      }
+      .track { height: 8px; border-radius: 4px; background: rgba(120,120,128,0.3); margin-top: 10px; overflow: hidden; }
+      .fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
+
+      /* Footer + actions */
+      footer { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
+      .updated { font-size: 12px; color: var(--secondary); }
+      .icon-btn { background: none; border: none; color: var(--secondary); cursor: pointer; font-size: 14px; padding: 4px; }
+      .icon-btn:hover { color: var(--text); }
+      .err { font-size: 12px; color: var(--orange); margin-top: 10px; }
+      .actions { display: flex; justify-content: space-between; margin-top: 12px; }
+      .chip {
+        font-size: 12px; color: var(--text); background: var(--card);
+        border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer;
+      }
+      .chip:hover { background: rgba(118,118,128,0.28); }
+      .center { text-align: center; color: var(--secondary); padding: 24px 8px; }
     </style>
   </head>
   <body>
-    <h1>Monet</h1>
-    <p>Tray-gauge proof-of-concept. The panel UI comes next.</p>
+    <div class="panel">
+      <header>
+        <img id="appicon" src="icon.png" alt="" />
+        <div class="titles">
+          <div class="title">Plan Usage</div>
+          <div class="status" id="statusText">Loading…</div>
+        </div>
+        <div class="dot" id="statusDot" style="background: var(--secondary)"></div>
+      </header>
+
+      <div id="content"></div>
+
+      <footer>
+        <div class="updated" id="updated">Not updated yet</div>
+        <button class="icon-btn" id="refreshBtn" title="Refresh">&#x21bb;</button>
+      </footer>
+      <div class="err" id="errline" style="display:none"></div>
+
+      <div class="actions">
+        <button class="chip" id="settingsBtn" title="Settings (coming soon)">&#9881; Settings</button>
+        <button class="chip" id="quitBtn">Quit</button>
+      </div>
+    </div>
+
+    <script>
+      const { invoke } = window.__TAURI__.core;
+      const { listen } = window.__TAURI__.event;
+      const win = window.__TAURI__.window.getCurrentWindow();
+      const LogicalSize = window.__TAURI__.window.LogicalSize;
+
+      const $ = (id) => document.getElementById(id);
+
+      // ---- formatting ----
+      const usageColor = (p) => (p < 75 ? "--blue" : p < 90 ? "--orange" : "--red");
+
+      function relTime(ms) {
+        if (!ms) return "Not updated yet";
+        const s = Math.max(0, (Date.now() - ms) / 1000);
+        if (s < 45) return "just now";
+        if (s < 3600) return `${Math.round(s / 60)}m ago`;
+        if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+        return new Date(ms).toLocaleDateString();
+      }
+      function countdown(iso) {
+        if (!iso) return null;
+        const s = (new Date(iso).getTime() - Date.now()) / 1000;
+        if (s <= 0) return null;
+        const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+        return h > 0 ? `${h}:${String(m).padStart(2, "0")}` : `${m}m`;
+      }
+      function dt(iso) {
+        if (!iso) return null;
+        return new Date(iso).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+      }
+      function sessionSub(m) {
+        const c = countdown(m.resets_at), t = dt(m.resets_at);
+        if (c && t) return `Resets in ${c} (${t.split(" ").slice(1).join(" ")})`;
+        if (c) return `Resets in ${c}`;
+        return "Reset time unknown";
+      }
+      function weeklySub(m) {
+        const t = dt(m.resets_at);
+        return t ? `Resets ${t}` : "Reset time unknown";
+      }
+
+      function row(title, sub, pct, colorVar) {
+        const c = `var(${colorVar})`;
+        const badgeBg = `color-mix(in srgb, ${c} 14%, transparent)`;
+        const fill = `linear-gradient(90deg, color-mix(in srgb, ${c} 78%, transparent), ${c})`;
+        return `<div class="row">
+          <div class="row-top">
+            <div>
+              <div class="row-title">${title}</div>
+              <div class="row-sub">${sub}</div>
+            </div>
+            <div class="badge" style="color:${c};background:${badgeBg}">${Math.round(pct)}%</div>
+          </div>
+          <div class="track"><div class="fill" style="width:${Math.min(pct, 100)}%;background:${fill}"></div></div>
+        </div>`;
+      }
+
+      // ---- render ----
+      function render(s) {
+        const anyCrit = [s.session, s.weekly, s.opus, s.sonnet].some((m) => m && m.utilization >= 90);
+        const anyWarn = [s.session, s.weekly, s.opus, s.sonnet].some((m) => m && m.utilization >= 75 && m.utilization < 90);
+        const [stText, stVar] = anyCrit
+          ? ["Critical usage level", "--red"]
+          : anyWarn
+          ? ["Approaching limits", "--orange"]
+          : s.authenticated
+          ? ["All systems normal", "--green"]
+          : ["Not connected", "--secondary"];
+        $("statusText").textContent = s.loading && !s.session ? "Loading…" : stText;
+        $("statusText").style.color = `var(${stVar})`;
+        $("statusDot").style.background = `var(${stVar})`;
+
+        let html = "";
+        if (!s.authenticated && !s.session) {
+          html = `<div class="center">No Claude usage data yet.<br>${s.error ? escapeHtml(s.error) : "Waiting for credentials…"}</div>`;
+        } else {
+          if (s.session) html += `<div class="card">${row("Current session", sessionSub(s.session), s.session.utilization, usageColor(s.session.utilization))}</div>`;
+          const hasWeekly = s.weekly || s.opus || s.sonnet;
+          if (hasWeekly) {
+            html += `<div class="section-head"><span class="label">Weekly Limits</span><a href="#" id="learn">Learn more &#8599;</a></div>`;
+            let rows = "";
+            if (s.weekly) rows += row("All models", weeklySub(s.weekly), s.weekly.utilization, usageColor(s.weekly.utilization));
+            if (s.sonnet) rows += row("Sonnet only", s.sonnet.utilization > 0 ? weeklySub(s.sonnet) : "You haven't used Sonnet yet", s.sonnet.utilization, "--teal");
+            if (s.opus) rows += row("Opus only", s.opus.utilization > 0 ? weeklySub(s.opus) : "You haven't used Opus yet", s.opus.utilization, "--purple");
+            html += `<div class="card">${rows}</div>`;
+          }
+        }
+        $("content").innerHTML = html;
+
+        $("updated").textContent = s.loading ? "Updating…" : relTime(s.last_updated_ms);
+        const errline = $("errline");
+        if (s.error && s.authenticated) { errline.style.display = "block"; errline.textContent = "⚠ " + s.error; }
+        else errline.style.display = "none";
+
+        resize();
+      }
+
+      function escapeHtml(t) { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; }
+
+      function resize() {
+        requestAnimationFrame(() => {
+          const h = Math.ceil(document.body.scrollHeight);
+          win.setSize(new LogicalSize(360, h)).catch(() => {});
+        });
+      }
+
+      // ---- wire up ----
+      const closePanel = () => win.hide().catch(() => {});
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel(); });
+      $("refreshBtn").onclick = () => invoke("refresh_now");
+      $("quitBtn").onclick = () => invoke("quit_app");
+      document.addEventListener("click", (e) => {
+        if (e.target && e.target.id === "learn") {
+          e.preventDefault();
+          window.__TAURI__.opener?.openUrl?.("https://support.claude.com/en/articles/11647753-understanding-usage-and-length-limits");
+        }
+      });
+
+      listen("state-updated", (e) => render(e.payload));
+      invoke("get_state").then(render);
+    </script>
   </body>
 </html>

@@ -266,6 +266,11 @@ fn main() {
             }
         })
         .setup(move |app| {
+            // macOS: run as a menu-bar agent (no Dock icon, LSUIElement-style),
+            // matching the native SwiftUI app. Windows still open normally.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             let open = MenuItem::with_id(app, "show", "Open Monet", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
@@ -447,8 +452,19 @@ fn show_panel(app: &AppHandle) {
             let scale = monitor.scale_factor();
             let logical_w = monitor.size().width as f64 / scale;
             let x = (logical_w - PANEL_WIDTH - 8.0).max(8.0);
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[monet] panel pos: monitor {}x{} scale {} -> logical_w={logical_w} x={x}",
+                monitor.size().width,
+                monitor.size().height,
+                scale
+            );
             let _ = win.set_position(LogicalPosition::new(x, 36.0));
         }
+        // macOS: as a menu-bar agent the popover must float above other apps'
+        // windows — an Accessory app won't bring it forward on its own.
+        #[cfg(target_os = "macos")]
+        let _ = win.set_always_on_top(true);
         let _ = win.show();
         let _ = win.set_focus();
         // On GNOME the closing tray menu can leave the panel shown-but-unfocused,

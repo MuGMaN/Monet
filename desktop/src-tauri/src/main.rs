@@ -138,15 +138,24 @@ struct UpdateInfo {
     available: bool,
     version: Option<String>,
     notes: Option<String>,
-    /// True only when the running install can replace itself in place (AppImage).
-    /// A `.deb`/system install is owned by the package manager, so we notify instead.
+    /// Whether the running install can replace itself in place (see
+    /// [`can_self_update`]). Otherwise we notify + open the releases page.
     can_auto_install: bool,
 }
 
-/// AppImage sets `$APPIMAGE` to the mounted image path; its absence means we're a
-/// `.deb`/system install (or a raw dev binary) that must not self-swap.
-fn is_appimage() -> bool {
-    std::env::var_os("APPIMAGE").is_some()
+/// Whether the current install can replace itself in place. Tauri's updater
+/// self-installs on macOS (swaps the `.app`) and Windows (runs the new
+/// installer); on Linux it can only self-swap an AppImage — a `.deb`/system
+/// install is owned by the package manager, so there we notify instead.
+fn can_self_update() -> bool {
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var_os("APPIMAGE").is_some()
+    }
 }
 
 #[tauri::command]
@@ -157,10 +166,10 @@ async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
             available: true,
             version: Some(update.version.clone()),
             notes: update.body.clone(),
-            can_auto_install: is_appimage(),
+            can_auto_install: can_self_update(),
         }),
         Ok(None) => Ok(UpdateInfo {
-            can_auto_install: is_appimage(),
+            can_auto_install: can_self_update(),
             ..Default::default()
         }),
         Err(e) => Err(e.to_string()),
@@ -169,8 +178,8 @@ async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
 
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
-    if !is_appimage() {
-        return Err("not-appimage".into());
+    if !can_self_update() {
+        return Err("this install updates via its package manager".into());
     }
     let updater = app.updater().map_err(|e| e.to_string())?;
     let update = updater

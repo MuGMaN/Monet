@@ -101,26 +101,36 @@ impl Auth {
             }
         }
 
-        // 2. Claude Code's own credentials (read-only).
-        if let Some(cc) = read_claude_code() {
+        // 2. Claude Code's credentials (read-only). On macOS the **Keychain** is
+        //    the authoritative store — `~/.claude/.credentials.json` can carry a
+        //    stale/revoked token from an older login — so try the Keychain first,
+        //    then the file. Any source whose refresh fails falls through to the
+        //    next one. Refreshed tokens are cached under Monet's OWN store; we
+        //    never write back to Claude Code's Keychain or file.
+        let mut missing_scope = false;
+        let mut sources: Vec<ClaudeAiOAuthToken> = Vec::new();
+        #[cfg(target_os = "macos")]
+        if let Some(kc) = read_claude_code_keychain() {
+            sources.push(kc);
+        }
+        if let Some(file) = read_claude_code() {
+            sources.push(file);
+        }
+        for cc in sources {
             if !cc.has_profile_scope() {
-                return Err(AuthError::MissingScope);
+                missing_scope = true;
+                continue;
             }
             if !cc.is_expired() {
                 return Ok(cc.access_token);
             }
-            // Expired locally — try to refresh, caching the result under Monet's
-            // OWN store (never Claude Code's file).
             if let Some(refresh) = &cc.refresh_token {
-                let fresh = self.refresh(refresh).await?;
-                let token = fresh.access_token.clone();
-                if let Err(e) = write_cache(&fresh) {
-                    // Non-fatal: we still return the freshly minted token.
-                    #[cfg(debug_assertions)]
-                    eprintln!("[monet-core] failed to cache refreshed token: {e}");
-                    let _ = e;
+                if let Ok(fresh) = self.refresh(refresh).await {
+                    let token = fresh.access_token.clone();
+                    let _ = write_cache(&fresh);
+                    return Ok(token);
                 }
-                return Ok(token);
+                // Refresh failed for this source — try the next.
             }
         }
 
@@ -137,6 +147,11 @@ impl Auth {
             }
         }
 
+        // A Claude Code token existed but lacked the required scope and nothing
+        // else worked — surface the actionable error rather than a generic one.
+        if missing_scope {
+            return Err(AuthError::MissingScope);
+        }
         Err(AuthError::NoValidToken)
     }
 
@@ -309,6 +324,49 @@ fn read_claude_code() -> Option<ClaudeAiOAuthToken> {
     let path = claude_code_creds_path()?;
     let data = std::fs::read_to_string(path).ok()?;
     let file: ClaudeCodeCredentialsFile = serde_json::from_str(&data).ok()?;
+    file.claude_ai_oauth
+}
+
+/// macOS: read Claude Code's OAuth credentials from the login Keychain (service
+/// `Claude Code-credentials`), where Claude Code keeps the authoritative,
+/// refreshable token — the `~/.claude/.credentials.json` file can lag behind with
+/// a revoked token from an older login. The item holds the same
+/// `{"claudeAiOauth": …}` JSON as the file. Read-only (Monet never writes to
+/// Claude Code's item); reads without a prompt because Claude Code stores it with
+/// an unrestricted access list.
+#[cfg(target_os = "macos")]
+fn read_claude_code_keychain() -> Option<ClaudeAiOAuthToken> {
+    // The login keychain can hold several "Claude Code-credentials" items across
+    // logins and Claude Code versions: current versions store the live token
+    // under the OS-username account, older ones under no account. A plain
+    // service lookup can return a stale item, so read both candidates and keep
+    // the one with the latest expiry.
+    let user = std::env::var("USER").unwrap_or_default();
+    let mut candidates: Vec<ClaudeAiOAuthToken> = Vec::new();
+    if !user.is_empty() {
+        if let Some(t) = keychain_claude_code(&["-s", "Claude Code-credentials", "-a", &user, "-w"])
+        {
+            candidates.push(t);
+        }
+    }
+    if let Some(t) = keychain_claude_code(&["-s", "Claude Code-credentials", "-w"]) {
+        candidates.push(t);
+    }
+    candidates
+        .into_iter()
+        .max_by_key(|t| t.expires_at.unwrap_or(i64::MIN))
+}
+
+#[cfg(target_os = "macos")]
+fn keychain_claude_code(extra_args: &[&str]) -> Option<ClaudeAiOAuthToken> {
+    let mut args = vec!["find-generic-password"];
+    args.extend_from_slice(extra_args);
+    let out = std::process::Command::new("security").args(&args).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let json = String::from_utf8(out.stdout).ok()?;
+    let file: ClaudeCodeCredentialsFile = serde_json::from_str(json.trim()).ok()?;
     file.claude_ai_oauth
 }
 

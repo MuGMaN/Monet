@@ -27,6 +27,7 @@
   "bundle": {
     "active": true,
     "publisher": "Eric Kaden",
+    "copyright": "© 2026 Eric Kaden",
     "targets": ["appimage", "deb"],
     "icon": [
       "icons/32x32.png",

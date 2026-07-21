@@ -106,7 +106,7 @@
         <button class="acct-btn primary" id="acctBtn" style="display:none"></button>
       </section>
 
-      <footer id="ver">Monet 1.0.20</footer>
+      <footer id="ver">Monet 1.0.20 · by Eric Kaden</footer>
     </div>
 
     <script>
@@ -182,7 +182,7 @@
 
       // Keep the footer version in sync with the actual app version.
       window.__TAURI__.app?.getVersion?.()
-        .then((v) => { document.getElementById("ver").textContent = "Monet " + v; })
+        .then((v) => { document.getElementById("ver").textContent = "Monet " + v + " · by Eric Kaden"; })
         .catch(() => {});
 
       init();

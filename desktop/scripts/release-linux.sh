@@ -78,27 +78,37 @@ echo ">> uploading latest.json"
 gl --upload-file "$MANIFEST" "$PKG/latest.json" >/dev/null
 rm -f "$MANIFEST"
 
-# 5. Create the GitLab release. The latest.json asset link uses
+# 5. Upsert the GitLab release and attach the Linux assets. The release for this
+#    tag may already exist (e.g. the macOS DMG was published first), so create it
+#    only if missing, then add asset links idempotently. The latest.json link uses
 #    direct_asset_path=/latest.json so the updater endpoint
 #    (…/releases/permalink/latest/downloads/latest.json) resolves to it.
-echo ">> creating GitLab release v$VERSION"
-gl --request POST "$GITLAB/api/v4/projects/$PROJECT_ID/releases" \
-   --header "Content-Type: application/json" \
-   --data @- >/dev/null <<JSON
-{
-  "tag_name": "v$VERSION",
-  "name": "Monet v$VERSION",
-  "ref": "main",
-  "description": "Monet v$VERSION (Linux: AppImage self-updates; .deb via download).",
-  "assets": {
-    "links": [
-      {"name": "$APP_NAME", "url": "$PKG/$APP_NAME", "direct_asset_path": "/$APP_NAME", "link_type": "package"},
-      {"name": "$DEB_NAME", "url": "$PKG/$DEB_NAME", "direct_asset_path": "/$DEB_NAME", "link_type": "package"},
-      {"name": "latest.json", "url": "$PKG/latest.json", "direct_asset_path": "/latest.json", "link_type": "other"}
-    ]
-  }
+REL="$GITLAB/api/v4/projects/$PROJECT_ID/releases"
+add_link() { # name  direct_asset_path  link_type
+  local code
+  code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+    -H "PRIVATE-TOKEN: $GITLAB_TOKEN" -H "Content-Type: application/json" \
+    "$REL/v$VERSION/assets/links" \
+    --data "{\"name\":\"$1\",\"url\":\"$PKG/$1\",\"direct_asset_path\":\"$2\",\"link_type\":\"$3\"}")
+  case "$code" in
+    201) echo "   + linked $1" ;;
+    4*)  echo "   = $1 already linked (HTTP $code)" ;;
+    *)   echo "   ! $1 link failed (HTTP $code)"; return 1 ;;
+  esac
 }
+
+if [ "$(curl -sS -o /dev/null -w '%{http_code}' -H "PRIVATE-TOKEN: $GITLAB_TOKEN" "$REL/v$VERSION")" = "200" ]; then
+  echo ">> release v$VERSION already exists — attaching Linux assets"
+else
+  echo ">> creating GitLab release v$VERSION"
+  gl --request POST "$REL" --header "Content-Type: application/json" --data @- >/dev/null <<JSON
+{ "tag_name": "v$VERSION", "name": "Monet v$VERSION", "ref": "main",
+  "description": "Monet v$VERSION (Linux: AppImage self-updates; .deb via download)." }
 JSON
+fi
+add_link "$APP_NAME"   "/$APP_NAME"   "package"
+add_link "$DEB_NAME"   "/$DEB_NAME"   "package"
+add_link "latest.json" "/latest.json" "other"
 
 echo ">> done. Released v$VERSION"
 echo "   updater endpoint: $GITLAB/eric/Monet/-/releases/permalink/latest/downloads/latest.json"

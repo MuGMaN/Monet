@@ -1,6 +1,6 @@
 [package]
 name = "monet-desktop"
-version = "1.0.18"
+version = "1.0.19"
 edition = "2021"
 description = "Monet cross-platform desktop (Tauri) — glanceable tray usage monitor."
 license = "MIT"

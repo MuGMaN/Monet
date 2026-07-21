@@ -97,7 +97,7 @@
         <div class="info" id="account">Checking…</div>
       </section>
 
-      <footer>Monet 0.1.0</footer>
+      <footer id="ver">Monet 1.0.18</footer>
     </div>
 
     <script>
@@ -135,6 +135,11 @@
       document.querySelectorAll('input[name=mode], #refresh, #autostart').forEach((el) =>
         el.addEventListener("change", save)
       );
+
+      // Keep the footer version in sync with the actual app version.
+      window.__TAURI__.app?.getVersion?.()
+        .then((v) => { document.getElementById("ver").textContent = "Monet " + v; })
+        .catch(() => {});
 
       init();
     </script>

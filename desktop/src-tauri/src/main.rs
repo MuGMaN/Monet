@@ -114,12 +114,22 @@ fn open_settings(app: AppHandle) {
         let _ = w.set_focus();
         return;
     }
-    let _ = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
+    let _ = build_settings_window(&app);
+}
+
+fn build_settings_window(app: &AppHandle) -> tauri::Result<()> {
+    let mut builder = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings.html".into()))
         .title("Monet Settings")
         .inner_size(420.0, 560.0)
         .resizable(false)
-        .center()
-        .build();
+        .center();
+    // Give the window the Monet icon so it shows in the taskbar/dock (rather than
+    // the generic gear the dev binary gets without a matching .desktop file).
+    if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/128x128.png")) {
+        builder = builder.icon(icon)?;
+    }
+    builder.build()?;
+    Ok(())
 }
 
 fn main() {
@@ -341,6 +351,19 @@ fn show_panel(app: &AppHandle) {
         }
         let _ = win.show();
         let _ = win.set_focus();
+        // On GNOME the closing tray menu can leave the panel shown-but-unfocused,
+        // so click-away wouldn't fire until it was first clicked. Re-assert focus
+        // once the menu grab has released.
+        let app2 = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            let app3 = app2.clone();
+            let _ = app2.run_on_main_thread(move || {
+                if let Some(w) = app3.get_webview_window("main") {
+                    let _ = w.set_focus();
+                }
+            });
+        });
         app.state::<AppState>().notify.notify_one();
     }
 }

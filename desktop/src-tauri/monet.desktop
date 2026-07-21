@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name={{name}}
+Comment={{comment}}
+Exec={{exec}}
+Icon={{icon}}
+Terminal=false
+Categories=Utility;
+# GNOME matches a running window to this entry by X11 res_class, which GTK
+# derives from the binary name "monet-desktop" by capitalizing the first
+# letter -> "Monet-desktop". Tauri's default StartupWMClass uses the lowercase
+# exec name and therefore never matches, leaving a generic gear in the dash.
+StartupWMClass=Monet-desktop

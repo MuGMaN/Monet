@@ -201,9 +201,38 @@ pub fn open_in_browser(url: &str) {
     #[cfg(target_os = "macos")]
     let _ = std::process::Command::new("open").arg(url).spawn();
     #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("cmd")
-        .args(["/C", "start", "", url])
-        .spawn();
+    open_in_browser_windows(url);
+}
+
+/// Windows: open a URL via `ShellExecuteW`, NOT `cmd /C start <url>`.
+///
+/// `cmd.exe` treats `&` as a command separator, and every query parameter in the
+/// OAuth authorize URL is joined by `&` — so `cmd /C start "" ".../authorize?code=true&client_id=…"`
+/// truncates the URL at the first `&`. The browser then receives only
+/// `?code=true` and Claude rejects it with "Invalid OAuth Request: Missing
+/// client_id parameter". `ShellExecuteW` hands the URL to the shell verbatim,
+/// with no metacharacter parsing.
+#[cfg(target_os = "windows")]
+fn open_in_browser_windows(url: &str) {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let wide = |s: &str| -> Vec<u16> {
+        std::ffi::OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+    };
+    let verb = wide("open");
+    let file = wide(url);
+    unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        );
+    }
 }
 
 #[cfg(test)]

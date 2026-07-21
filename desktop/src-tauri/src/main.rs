@@ -216,14 +216,8 @@ fn sign_out(app: AppHandle) {
 /// Open the GitLab releases page (for `.deb`/system installs that can't self-update).
 #[tauri::command]
 fn open_release_page() {
-    #[cfg(target_os = "linux")]
-    let _ = std::process::Command::new("xdg-open").arg(RELEASES_URL).spawn();
-    #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("cmd")
-        .args(["/C", "start", "", RELEASES_URL])
-        .spawn();
-    #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg(RELEASES_URL).spawn();
+    // Reuse the core opener (ShellExecuteW on Windows) rather than `cmd /C start`.
+    monet_core::oauth::open_in_browser(RELEASES_URL);
 }
 
 fn build_settings_window(app: &AppHandle) -> tauri::Result<()> {
@@ -237,7 +231,29 @@ fn build_settings_window(app: &AppHandle) -> tauri::Result<()> {
     if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/128x128.png")) {
         builder = builder.icon(icon)?;
     }
-    builder.build()?;
+    let win = builder.build()?;
+    // Windows/WebView2: a freshly-created fixed-size window often stays on a blank,
+    // unpainted (white) compositor surface until something forces the first frame.
+    // The main panel dodges this only because its JS setSize()s on load (see
+    // index.html's resize()); the settings window is fixed-size and never resizes,
+    // so nudge it once after the webview attaches to force that first paint.
+    #[cfg(target_os = "windows")]
+    {
+        let w = win.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            let w1 = w.clone();
+            let _ = w.run_on_main_thread(move || {
+                let _ = w1.set_size(tauri::LogicalSize::new(420.0, 562.0));
+            });
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            let w2 = w.clone();
+            let _ = w.run_on_main_thread(move || {
+                let _ = w2.set_size(tauri::LogicalSize::new(420.0, 560.0));
+            });
+        });
+    }
+    let _ = &win;
     Ok(())
 }
 
@@ -259,6 +275,13 @@ fn main() {
     let settings = load_settings();
 
     tauri::Builder::default()
+        // Must be the first plugin: on a second launch it fires this callback in
+        // the already-running instance (and aborts the new one) instead of letting
+        // Monet run several copies side by side.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // Surface the existing instance so the user sees it's already running.
+            show_panel(app, None);
+        }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -699,15 +722,35 @@ fn position_windows_flyout(win: &tauri::WebviewWindow) {
 
 /// Windows: robustly bring `win` to the foreground, bypassing the foreground
 /// lock via the AttachThreadInput trick, so a tray-launched flyout is genuinely
-/// focused (and therefore dismisses on click-away) rather than shown-but-inactive.
+/// focused (and therefore dismisses on click-away, and takes keyboard input for
+/// the Escape-to-close handler) rather than shown-but-inactive.
 #[cfg(target_os = "windows")]
 fn force_foreground(win: &tauri::WebviewWindow) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{BringWindowToTop, SetForegroundWindow};
-    if let Ok(h) = win.hwnd() {
-        let hwnd = h.0 as windows_sys::Win32::Foundation::HWND;
-        unsafe {
-            BringWindowToTop(hwnd);
-            SetForegroundWindow(hwnd);
+    use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
+    };
+    let Ok(h) = win.hwnd() else { return };
+    let hwnd = h.0 as windows_sys::Win32::Foundation::HWND;
+    unsafe {
+        // Windows refuses SetForegroundWindow to a background process (our tray
+        // app), so a shown flyout stays inactive: it never gets WM_KILLFOCUS on
+        // click-away (so blur-to-hide never fires) and its webview never receives
+        // keyboard focus (so the JS Escape handler is dead). Temporarily attach to
+        // the current foreground window's input thread to inherit its right to set
+        // the foreground window, focus ourselves, then detach.
+        let fg = GetForegroundWindow();
+        let fg_thread = GetWindowThreadProcessId(fg, std::ptr::null_mut());
+        let our_thread = GetCurrentThreadId();
+        let attached = fg_thread != 0
+            && fg_thread != our_thread
+            && AttachThreadInput(fg_thread, our_thread, 1) != 0;
+        BringWindowToTop(hwnd);
+        SetForegroundWindow(hwnd);
+        SetFocus(hwnd);
+        if attached {
+            AttachThreadInput(fg_thread, our_thread, 0);
         }
     }
 }

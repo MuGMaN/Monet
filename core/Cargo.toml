@@ -20,5 +20,10 @@ base64 = "0.22"
 getrandom = "0.2"
 tokio = { version = "1", features = ["net", "time", "io-util"] }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+# Open URLs via ShellExecuteW instead of `cmd /C start`, which would mangle the
+# `&`-separated OAuth query string (see oauth::open_in_browser_windows).
+windows-sys = { version = "0.59", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }

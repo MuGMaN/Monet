@@ -2081,6 +2081,7 @@ dependencies = [
  "tauri-plugin-autostart",
  "tauri-plugin-updater",
  "tokio",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

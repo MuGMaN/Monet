@@ -39,6 +39,11 @@
         "desktopTemplate": "monet.desktop"
       }
     },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
     "createUpdaterArtifacts": true
   },
   "plugins": {

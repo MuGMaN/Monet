@@ -276,6 +276,17 @@ fn main() {
             sign_out
         ])
         .on_window_event(|window, event| {
+            // Windows: the panel auto-sizes to its content after render, so
+            // re-anchor the flyout flush above the taskbar on every resize.
+            #[cfg(target_os = "windows")]
+            if matches!(event, WindowEvent::Resized(_)) {
+                if window.label() == "main" && window.is_visible().unwrap_or(false) {
+                    if let Some(w) = window.app_handle().get_webview_window("main") {
+                        position_windows_flyout(&w);
+                    }
+                }
+            }
+            // Dismiss on click-away (blur). Skipped in the show-on-start test mode.
             if std::env::var_os("MONET_SHOW_ON_START").is_some() {
                 return;
             }
@@ -494,29 +505,46 @@ fn emit_state(app: &AppHandle) {
 /// primary display's top-right.
 fn show_panel(app: &AppHandle, near: Option<Rect>) {
     if let Some(win) = app.get_webview_window("main") {
+        // Windows: anchor the flyout to the work-area bottom-right (above the
+        // taskbar), OneDrive-style — not the tray-icon rect.
+        #[cfg(target_os = "windows")]
+        {
+            let _ = &near;
+            position_windows_flyout(&win);
+        }
+        #[cfg(not(target_os = "windows"))]
         match near {
             Some(rect) => position_under_icon(&win, rect),
             None => position_top_right(&win),
         }
-        // macOS: as a menu-bar agent the popover must float above other apps'
-        // windows — an Accessory app won't bring it forward on its own.
-        #[cfg(target_os = "macos")]
+        // macOS/Windows: the popover flyout must float above other windows and
+        // come forward on its own (a menu-bar agent / background-launched tray app
+        // won't otherwise). Linux/GNOME handles this without it.
+        #[cfg(not(target_os = "linux"))]
         let _ = win.set_always_on_top(true);
         let _ = win.show();
         let _ = win.set_focus();
-        // On GNOME the closing tray menu can leave the panel shown-but-unfocused,
-        // so click-away wouldn't fire until it was first clicked. Re-assert focus
-        // once the menu grab has released.
-        let app2 = app.clone();
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(150)).await;
-            let app3 = app2.clone();
-            let _ = app2.run_on_main_thread(move || {
-                if let Some(w) = app3.get_webview_window("main") {
-                    let _ = w.set_focus();
-                }
+        // Windows: a tray-launched window doesn't reliably become the foreground
+        // window, so it loses focus spuriously (hides too soon) or — with blur
+        // off — never dismisses. Force it to the foreground so it's genuinely
+        // focused and only closes on a real click-away.
+        #[cfg(target_os = "windows")]
+        force_foreground(&win);
+        // Non-Windows: on GNOME the closing tray menu can leave the panel
+        // shown-but-unfocused, so re-assert focus once the grab has released.
+        #[cfg(not(target_os = "windows"))]
+        {
+            let app2 = app.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                let app3 = app2.clone();
+                let _ = app2.run_on_main_thread(move || {
+                    if let Some(w) = app3.get_webview_window("main") {
+                        let _ = w.set_focus();
+                    }
+                });
             });
-        });
+        }
         app.state::<AppState>().notify.notify_one();
     }
 }
@@ -526,6 +554,7 @@ fn show_panel(app: &AppHandle, near: Option<Rect>) {
 /// One monitor's geometry as Tauri reports it on macOS: origin in **points**,
 /// size in **physical px**, plus the scale factor. (This mixed convention is
 /// exactly what `Monitor::position()`/`size()`/`scale_factor()` return.)
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 struct MonitorGeom {
     x: f64,
     y: f64,
@@ -544,6 +573,7 @@ struct MonitorGeom {
 /// the candidates whose points rect actually contains the icon, and break ties
 /// (overlapping scaled ranges on mixed-DPI setups) by whichever scale yields the
 /// most menu-bar-like icon height. Returns `None` if the icon can't be localized.
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 fn panel_origin_points(
     rect_x: f64,
     rect_y: f64,
@@ -588,9 +618,11 @@ fn panel_origin_points(
     Some((x.clamp(min_x, max_x), y))
 }
 
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 fn position_under_icon(win: &tauri::WebviewWindow, rect: Rect) {
     let rp = rect.position.to_physical::<f64>(1.0);
     let rs = rect.size.to_physical::<f64>(1.0);
+
     let monitors: Vec<MonitorGeom> = win
         .available_monitors()
         .unwrap_or_default()
@@ -615,12 +647,59 @@ fn position_under_icon(win: &tauri::WebviewWindow, rect: Rect) {
 }
 
 /// Fallback position (Linux menu / test hook): primary display, top-right.
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 fn position_top_right(win: &tauri::WebviewWindow) {
     if let Ok(Some(monitor)) = win.primary_monitor() {
         let scale = monitor.scale_factor();
         let logical_w = monitor.size().width as f64 / scale;
         let x = (logical_w - PANEL_WIDTH - 8.0).max(8.0);
         let _ = win.set_position(LogicalPosition::new(x, 36.0));
+    }
+}
+
+/// The primary monitor's work area (taskbar excluded) in physical pixels,
+/// as `(right, bottom)`. Tauri runs per-monitor-DPI-aware, so these match
+/// `outer_size()` and `PhysicalPosition`.
+#[cfg(target_os = "windows")]
+fn windows_work_area_br() -> Option<(i32, i32)> {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETWORKAREA};
+    let mut r = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+    let ok = unsafe {
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, &mut r as *mut RECT as *mut _, 0)
+    };
+    (ok != 0).then_some((r.right, r.bottom))
+}
+
+/// Windows: place the panel as a bottom-right flyout flush above the taskbar
+/// (OneDrive-style), using the exact work area so it never overlaps the taskbar
+/// or leaves a gap.
+#[cfg(target_os = "windows")]
+fn position_windows_flyout(win: &tauri::WebviewWindow) {
+    let size = match win.outer_size() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    if let Some((right, bottom)) = windows_work_area_br() {
+        let margin = 12;
+        let x = (right - size.width as i32 - margin).max(0);
+        let y = (bottom - size.height as i32 - margin).max(0);
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+}
+
+/// Windows: robustly bring `win` to the foreground, bypassing the foreground
+/// lock via the AttachThreadInput trick, so a tray-launched flyout is genuinely
+/// focused (and therefore dismisses on click-away) rather than shown-but-inactive.
+#[cfg(target_os = "windows")]
+fn force_foreground(win: &tauri::WebviewWindow) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{BringWindowToTop, SetForegroundWindow};
+    if let Ok(h) = win.hwnd() {
+        let hwnd = h.0 as windows_sys::Win32::Foundation::HWND;
+        unsafe {
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd);
+        }
     }
 }
 

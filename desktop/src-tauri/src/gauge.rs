@@ -9,7 +9,12 @@ use resvg::{tiny_skia, usvg};
 /// Transparent gap added to the right of the gauge (as a fraction of `size`) so
 /// the tray label (percentage + time) doesn't butt right up against the ring.
 /// macOS and Linux draw the title immediately after the icon, so the spacing has
-/// to live in the image itself.
+/// to live in the image itself. Windows shows no text label (the tray is
+/// icon-only) and the icon slot is square, so no padding there — a wide image
+/// would be squished/off-center.
+#[cfg(target_os = "windows")]
+const RIGHT_PAD_FRAC: f64 = 0.0;
+#[cfg(not(target_os = "windows"))]
 const RIGHT_PAD_FRAC: f64 = 0.22;
 
 /// Render the gauge for `pct` (0..=100) at `size`x`size` px (plus a transparent

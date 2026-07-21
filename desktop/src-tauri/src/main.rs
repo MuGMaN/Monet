@@ -14,8 +14,12 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, LogicalPosition, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
+use tauri_plugin_updater::UpdaterExt;
 
 mod gauge;
+
+/// The GitLab releases page, opened when a `.deb`/system install can't self-update.
+const RELEASES_URL: &str = "https://gitlab.ericandjoe.work/eric/Monet/-/releases";
 
 const TRAY_SIZE: u32 = 128;
 const PANEL_WIDTH: f64 = 360.0;
@@ -117,6 +121,73 @@ fn open_settings(app: AppHandle) {
     let _ = build_settings_window(&app);
 }
 
+// ---- auto-update ----
+
+#[derive(Serialize, Clone, Default)]
+struct UpdateInfo {
+    available: bool,
+    version: Option<String>,
+    notes: Option<String>,
+    /// True only when the running install can replace itself in place (AppImage).
+    /// A `.deb`/system install is owned by the package manager, so we notify instead.
+    can_auto_install: bool,
+}
+
+/// AppImage sets `$APPIMAGE` to the mounted image path; its absence means we're a
+/// `.deb`/system install (or a raw dev binary) that must not self-swap.
+fn is_appimage() -> bool {
+    std::env::var_os("APPIMAGE").is_some()
+}
+
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    match updater.check().await {
+        Ok(Some(update)) => Ok(UpdateInfo {
+            available: true,
+            version: Some(update.version.clone()),
+            notes: update.body.clone(),
+            can_auto_install: is_appimage(),
+        }),
+        Ok(None) => Ok(UpdateInfo {
+            can_auto_install: is_appimage(),
+            ..Default::default()
+        }),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    if !is_appimage() {
+        return Err("not-appimage".into());
+    }
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "no update available".to_string())?;
+    update
+        .download_and_install(|_downloaded, _total| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart();
+}
+
+/// Open the GitLab releases page (for `.deb`/system installs that can't self-update).
+#[tauri::command]
+fn open_release_page() {
+    #[cfg(target_os = "linux")]
+    let _ = std::process::Command::new("xdg-open").arg(RELEASES_URL).spawn();
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("cmd")
+        .args(["/C", "start", "", RELEASES_URL])
+        .spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(RELEASES_URL).spawn();
+}
+
 fn build_settings_window(app: &AppHandle) -> tauri::Result<()> {
     let mut builder = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings.html".into()))
         .title("Monet Settings")
@@ -143,6 +214,7 @@ fn main() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState {
             panel: Mutex::new(PanelState::default()),
             settings: Mutex::new(settings),
@@ -155,7 +227,10 @@ fn main() {
             quit_app,
             get_settings,
             set_settings,
-            open_settings
+            open_settings,
+            check_update,
+            install_update,
+            open_release_page
         ])
         .on_window_event(|window, event| {
             if std::env::var_os("MONET_SHOW_ON_START").is_some() {

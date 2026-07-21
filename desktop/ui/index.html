@@ -73,6 +73,23 @@
       }
       .chip:hover { background: rgba(118,118,128,0.28); }
       .center { text-align: center; color: var(--secondary); padding: 24px 8px; }
+
+      /* Update banner */
+      .update-banner {
+        display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+        padding: 10px 12px; border-radius: 10px;
+        background: color-mix(in srgb, var(--blue) 16%, transparent);
+        border: 1px solid color-mix(in srgb, var(--blue) 40%, transparent);
+      }
+      .update-banner .ub-text { flex: 1; min-width: 0; }
+      .ub-title { font-size: 13px; font-weight: 600; color: var(--blue); }
+      .ub-sub { font-size: 12px; color: var(--secondary); margin-top: 2px; }
+      .ub-btn {
+        font-size: 12px; font-weight: 600; color: #fff; background: var(--blue);
+        border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer; white-space: nowrap;
+      }
+      .ub-btn:hover { filter: brightness(1.1); }
+      .ub-btn:disabled { opacity: 0.6; cursor: default; }
     </style>
   </head>
   <body>
@@ -85,6 +102,14 @@
         </div>
         <div class="dot" id="statusDot" style="background: var(--secondary)"></div>
       </header>
+
+      <div id="updateBanner" class="update-banner" style="display:none">
+        <div class="ub-text">
+          <div class="ub-title" id="ubTitle">Update available</div>
+          <div class="ub-sub" id="ubSub"></div>
+        </div>
+        <button class="ub-btn" id="ubBtn">Update</button>
+      </div>
 
       <div id="content"></div>
 
@@ -221,6 +246,40 @@
 
       listen("state-updated", (e) => render(e.payload));
       invoke("get_state").then(render);
+
+      // ---- auto-update ----
+      async function checkForUpdate() {
+        try {
+          const u = await invoke("check_update");
+          if (!u || !u.available) return;
+          $("ubTitle").textContent = `Version ${u.version} available`;
+          const btn = $("ubBtn");
+          if (u.can_auto_install) {
+            $("ubSub").textContent = "Ready to install";
+            btn.textContent = "Install & relaunch";
+            btn.onclick = async () => {
+              btn.disabled = true;
+              btn.textContent = "Installing…";
+              try {
+                await invoke("install_update"); // relaunches on success
+              } catch (_) {
+                btn.disabled = false;
+                btn.textContent = "Retry";
+                $("ubSub").textContent = "Update failed — try again";
+              }
+            };
+          } else {
+            $("ubSub").textContent = "Open the download page";
+            btn.textContent = "Download";
+            btn.onclick = () => invoke("open_release_page");
+          }
+          $("updateBanner").style.display = "flex";
+          resize();
+        } catch (_) {
+          // No published release yet, offline, or endpoint unreachable — stay quiet.
+        }
+      }
+      checkForUpdate();
     </script>
   </body>
 </html>

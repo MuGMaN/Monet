@@ -15,9 +15,10 @@ pub mod auth;
 pub mod config;
 pub mod credentials;
 pub mod models;
+pub mod oauth;
 pub mod usage;
 
-pub use auth::{Auth, AuthError};
+pub use auth::{Auth, AuthError, AuthSource};
 pub use credentials::{CachedToken, ClaudeAiOAuthToken};
 pub use models::{UsageMetric, UsageResponse};
 pub use usage::{fetch_usage, UsageError};

@@ -72,6 +72,9 @@
         border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer;
       }
       .chip:hover { background: rgba(118,118,128,0.28); }
+      .chip.primary { background: var(--blue); color: #fff; }
+      .chip.primary:hover { background: var(--blue); filter: brightness(1.1); }
+      .chip:disabled { opacity: 0.6; cursor: default; }
       .center { text-align: center; color: var(--secondary); padding: 24px 8px; }
 
       /* Update banner */
@@ -199,7 +202,11 @@
 
         let html = "";
         if (!s.authenticated && !s.session) {
-          html = `<div class="center">No Claude usage data yet.<br>${s.error ? escapeHtml(s.error) : "Waiting for credentials…"}</div>`;
+          const detail = s.error ? escapeHtml(s.error) : "Sign in to see your Claude usage.";
+          html = `<div class="center">${detail}
+            <div class="actions" style="justify-content:center;margin-top:14px">
+              <button class="chip primary" id="signin">Sign in with Claude</button>
+            </div></div>`;
         } else {
           if (s.session) html += `<div class="card">${row("Current session", sessionSub(s.session), s.session.utilization, usageColor(s.session.utilization))}</div>`;
           const hasWeekly = s.weekly || s.opus || s.sonnet;
@@ -241,6 +248,13 @@
         if (e.target && e.target.id === "learn") {
           e.preventDefault();
           window.__TAURI__.opener?.openUrl?.("https://support.claude.com/en/articles/11647753-understanding-usage-and-length-limits");
+        }
+        if (e.target && e.target.id === "signin") {
+          e.target.disabled = true;
+          e.target.textContent = "Waiting for browser…";
+          // The panel hides on blur when the browser opens; sign-in still
+          // completes and the tray/next-open reflects the new account.
+          invoke("start_login").catch(() => {});
         }
       });
 

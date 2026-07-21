@@ -61,6 +61,14 @@
       .switch input:checked + .slider::before { transform: translateX(16px); }
       .info { padding: 10px; border-radius: 8px; background: var(--card); color: var(--secondary); font-size: 12px; }
       .info .ok { color: var(--green); }
+      .acct-btn {
+        width: 100%; margin-top: 10px; padding: 9px 12px; border: none;
+        border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+      }
+      .acct-btn.primary { background: var(--blue); color: #fff; }
+      .acct-btn.secondary { background: var(--card); color: var(--text); }
+      .acct-btn:hover { filter: brightness(1.1); }
+      .acct-btn:disabled { opacity: 0.6; cursor: default; filter: none; }
       footer { color: var(--secondary); font-size: 12px; text-align: center; padding-top: 4px; }
     </style>
   </head>
@@ -95,6 +103,7 @@
       <section>
         <h2>Account</h2>
         <div class="info" id="account">Checking…</div>
+        <button class="acct-btn primary" id="acctBtn" style="display:none"></button>
       </section>
 
       <footer id="ver">Monet 1.0.19</footer>
@@ -105,10 +114,45 @@
       const { listen } = window.__TAURI__.event;
 
       function setAccount(st) {
-        document.getElementById("account").innerHTML =
-          st && st.authenticated
-            ? '<span class="ok">&#10003; Signed in</span> — using Claude Code credentials'
-            : "Not connected — no Claude usage data available";
+        const info = document.getElementById("account");
+        const btn = document.getElementById("acctBtn");
+        btn.disabled = false;
+        const src = st && st.auth_source;
+        if (st && st.authenticated && src === "claude_code") {
+          info.innerHTML = '<span class="ok">&#10003; Signed in</span> — using Claude Code credentials';
+          btn.style.display = "none";
+        } else if (st && st.authenticated && src === "monet") {
+          info.innerHTML = '<span class="ok">&#10003; Signed in</span> — via Monet browser login';
+          btn.textContent = "Sign out";
+          btn.className = "acct-btn secondary";
+          btn.onclick = () => invoke("sign_out");
+          btn.style.display = "block";
+        } else {
+          info.textContent = "Not connected — sign in to see your Claude usage.";
+          btn.textContent = "Sign in with Claude";
+          btn.className = "acct-btn primary";
+          btn.onclick = doSignIn;
+          btn.style.display = "block";
+        }
+      }
+
+      let authBusy = false;
+      async function doSignIn() {
+        if (authBusy) return;
+        authBusy = true;
+        const btn = document.getElementById("acctBtn");
+        btn.disabled = true;
+        btn.textContent = "Waiting for browser…";
+        try {
+          await invoke("start_login"); // resolves after the browser callback; a
+          // state-updated event then re-renders this as "Signed in".
+        } catch (e) {
+          document.getElementById("account").textContent = "Sign-in failed: " + e;
+          btn.disabled = false;
+          btn.textContent = "Try again";
+        } finally {
+          authBusy = false;
+        }
       }
 
       async function init() {

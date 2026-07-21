@@ -44,6 +44,8 @@ struct PanelState {
     loading: bool,
     error: Option<String>,
     authenticated: bool,
+    /// Which tier backs auth right now: "claude_code" | "monet" | null.
+    auth_source: Option<String>,
     last_updated_ms: Option<u64>,
     session: Option<Metric>,
     weekly: Option<Metric>,
@@ -175,6 +177,25 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
     app.restart();
 }
 
+// ---- sign-in (tier-3 browser OAuth) ----
+
+/// Run Monet's own browser OAuth flow (for users without Claude Code). Opens the
+/// browser, catches the loopback callback, stores tokens, then refreshes the UI.
+#[tauri::command]
+async fn start_login(app: AppHandle) -> Result<(), String> {
+    let auth = { app.state::<AppState>().auth.clone() };
+    auth.login().await.map_err(|e| e.to_string())?;
+    app.state::<AppState>().notify.notify_one();
+    Ok(())
+}
+
+/// Sign out of Monet's own OAuth (leaves Claude Code's credentials untouched).
+#[tauri::command]
+fn sign_out(app: AppHandle) {
+    app.state::<AppState>().auth.sign_out();
+    app.state::<AppState>().notify.notify_one();
+}
+
 /// Open the GitLab releases page (for `.deb`/system installs that can't self-update).
 #[tauri::command]
 fn open_release_page() {
@@ -230,7 +251,9 @@ fn main() {
             open_settings,
             check_update,
             install_update,
-            open_release_page
+            open_release_page,
+            start_login,
+            sign_out
         ])
         .on_window_event(|window, event| {
             if std::env::var_os("MONET_SHOW_ON_START").is_some() {
@@ -314,6 +337,7 @@ async fn poll_and_update(app: &AppHandle) {
 
     let auth = app.state::<AppState>().auth.clone();
     let result = auth.usage().await;
+    let source = auth.current_source().map(|s| s.as_str().to_string());
 
     let mode = app.state::<AppState>().settings.lock().unwrap().display_mode.clone();
     let mut tray: Option<(f64, Option<String>)> = None;
@@ -321,6 +345,7 @@ async fn poll_and_update(app: &AppHandle) {
         let st = app.state::<AppState>();
         let mut p = st.panel.lock().unwrap();
         p.loading = false;
+        p.auth_source = source;
         match result {
             Ok(u) => {
                 if let Some(m) = &u.five_hour {

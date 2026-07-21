@@ -2054,12 +2054,16 @@ dependencies = [
 name = "monet-core"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "dirs 5.0.1",
+ "getrandom 0.2.17",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.19",
+ "tokio",
 ]
 
 [[package]]

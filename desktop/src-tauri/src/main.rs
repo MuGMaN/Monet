@@ -234,6 +234,17 @@ fn build_settings_window(app: &AppHandle) -> tauri::Result<()> {
 
 fn main() {
     let auth = Arc::new(Auth::new());
+
+    // One-time migration from the retired native macOS app (same bundle id).
+    #[cfg(target_os = "macos")]
+    {
+        migrate_native_settings(); // fast, no prompt
+        let auth_mig = auth.clone();
+        // The token import may show a one-time keychain prompt, so run it off the
+        // main thread; a later poll picks up the seeded token.
+        std::thread::spawn(move || migrate_native_token(&auth_mig));
+    }
+
     let notify = Arc::new(tokio::sync::Notify::new());
     let notify_loop = notify.clone();
     let settings = load_settings();
@@ -637,6 +648,108 @@ fn save_settings(s: &Settings) {
     }
 }
 
+// ---- one-time migration from the native macOS app (shares the bundle id) ----
+
+/// Import the native SwiftUI app's menu-bar settings from the shared
+/// `com.monet.usage-monitor` `UserDefaults` domain on first launch after
+/// migrating. `defaults` reads the same domain the native app wrote (we share
+/// the bundle id) and never prompts.
+#[cfg(target_os = "macos")]
+fn migrate_native_settings() {
+    // First launch only — never overwrite settings the user already has.
+    if settings_path().map(|p| p.exists()).unwrap_or(true) {
+        return;
+    }
+    let read = |key: &str| -> Option<String> {
+        let out = std::process::Command::new("defaults")
+            .args(["read", "com.monet.usage-monitor", key])
+            .output()
+            .ok()?;
+        let s = String::from_utf8(out.stdout).ok()?.trim().to_string();
+        (out.status.success() && !s.is_empty()).then_some(s)
+    };
+
+    // Native raw values are "Minimal"/"Normal"/"Verbose"; Tauri uses lowercase.
+    let mode = read("menuBarDisplayMode").map(|m| m.to_lowercase());
+    let secs = read("refreshInterval")
+        .and_then(|s| s.parse::<f64>().ok())
+        .map(|f| f.round() as u64);
+    if mode.is_none() && secs.is_none() {
+        return; // nothing to import
+    }
+
+    let mut s = Settings::default();
+    if let Some(m) = mode {
+        if ["minimal", "normal", "verbose"].contains(&m.as_str()) {
+            s.display_mode = m;
+        }
+    }
+    if let Some(sec) = secs {
+        if sec >= 5 {
+            s.refresh_secs = sec;
+        }
+    }
+    save_settings(&s);
+}
+
+/// Import the native app's own OAuth token from the shared Keychain item
+/// (service `com.monet.usage-monitor`, account `default`) so a user who signed
+/// in via Monet's own browser flow (not Claude Code) isn't logged out by the
+/// migration. Best-effort — macOS may prompt once for keychain access; on any
+/// failure the user simply re-signs-in. Claude Code users are unaffected either
+/// way (both apps read `~/.claude/.credentials.json`).
+#[cfg(target_os = "macos")]
+fn migrate_native_token(auth: &Auth) {
+    if auth.has_own_oauth() {
+        return;
+    }
+    let out = std::process::Command::new("security")
+        .args([
+            "find-generic-password",
+            "-s",
+            "com.monet.usage-monitor",
+            "-a",
+            "default",
+            "-w",
+        ])
+        .output();
+    let Ok(out) = out else { return };
+    let Ok(json) = String::from_utf8(out.stdout) else { return };
+    if !out.status.success() {
+        return;
+    }
+    if let Some((access, refresh, obtained, expires)) = parse_native_oauth_json(json.trim()) {
+        auth.seed_own_oauth(access, refresh, obtained, expires);
+    }
+}
+
+/// Convert the native app's Keychain `OAuthTokens` JSON into
+/// `(access, refresh, obtained_at_unix, expires_in)`. Swift's default `Date`
+/// encoding is seconds since 2001-01-01, so `obtainedAt` is shifted by
+/// 978307200s to a Unix timestamp.
+#[cfg(any(target_os = "macos", test))]
+fn parse_native_oauth_json(json: &str) -> Option<(String, Option<String>, i64, i64)> {
+    #[derive(Deserialize)]
+    struct NativeTokens {
+        #[serde(rename = "accessToken")]
+        access_token: String,
+        #[serde(rename = "refreshToken")]
+        refresh_token: Option<String>,
+        #[serde(rename = "expiresIn")]
+        expires_in: f64,
+        #[serde(rename = "obtainedAt")]
+        obtained_at: f64,
+    }
+    let t: NativeTokens = serde_json::from_str(json).ok()?;
+    let obtained_unix = (t.obtained_at + 978_307_200.0).round() as i64;
+    Some((
+        t.access_token,
+        t.refresh_token,
+        obtained_unix,
+        t.expires_in.round() as i64,
+    ))
+}
+
 fn apply_autostart(app: &AppHandle, enable: bool) {
     use tauri_plugin_autostart::ManagerExt;
     let mgr = app.autolaunch();
@@ -729,5 +842,24 @@ mod tests {
     #[test]
     fn no_monitors_returns_none() {
         assert!(panel_origin_points(100., 0., 100., 24., PANEL, &[]).is_none());
+    }
+
+    #[test]
+    fn native_oauth_json_converts_swift_date() {
+        use super::parse_native_oauth_json;
+        // Swift default-encodes Date as seconds since 2001-01-01; Unix is +978307200.
+        let json = r#"{"accessToken":"AT","refreshToken":"RT","expiresIn":3600,"tokenType":"Bearer","obtainedAt":774000000}"#;
+        let (a, r, obtained, exp) = parse_native_oauth_json(json).unwrap();
+        assert_eq!(a, "AT");
+        assert_eq!(r.as_deref(), Some("RT"));
+        assert_eq!(obtained, 774_000_000 + 978_307_200);
+        assert_eq!(exp, 3600);
+
+        // No refresh token, fractional expiresIn, obtainedAt at the epoch shift.
+        let json2 = r#"{"accessToken":"AT","expiresIn":100.7,"tokenType":"Bearer","obtainedAt":0}"#;
+        let (_, r2, ob2, exp2) = parse_native_oauth_json(json2).unwrap();
+        assert!(r2.is_none());
+        assert_eq!(ob2, 978_307_200);
+        assert_eq!(exp2, 101);
     }
 }

@@ -163,6 +163,32 @@ impl Auth {
         }
     }
 
+    /// Whether Monet's own OAuth token store already exists.
+    pub fn has_own_oauth(&self) -> bool {
+        read_oauth().is_some()
+    }
+
+    /// Seed Monet's own OAuth store from an external source (e.g. migrating the
+    /// native macOS app's Keychain token). No-op if a token already exists, so it
+    /// never clobbers a fresh sign-in. `obtained_at` is Unix seconds.
+    pub fn seed_own_oauth(
+        &self,
+        access_token: String,
+        refresh_token: Option<String>,
+        obtained_at: i64,
+        expires_in: i64,
+    ) {
+        if read_oauth().is_some() {
+            return;
+        }
+        let _ = write_oauth(&CachedToken {
+            access_token,
+            refresh_token,
+            obtained_at,
+            expires_in,
+        });
+    }
+
     /// Which tier would back the next token, computed from local files only (no
     /// network). Mirrors the [`Self::get_access_token`] order; for UI labelling.
     pub fn current_source(&self) -> Option<AuthSource> {

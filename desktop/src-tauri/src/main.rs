@@ -12,8 +12,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{
     image::Image,
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, LogicalPosition, Manager, Rect, WebviewUrl, WebviewWindowBuilder,
-    WindowEvent,
+    AppHandle, Emitter, LogicalPosition, Manager, Rect, WindowEvent,
 };
 // The tray menu (and its item types) is Linux-only — macOS/Windows open the
 // panel directly on click.
@@ -28,6 +27,12 @@ const RELEASES_URL: &str = "https://gitlab.ericandjoe.work/eric/Monet/-/releases
 
 const TRAY_SIZE: u32 = 128;
 const PANEL_WIDTH: f64 = 360.0;
+/// Windows: how long after showing the panel to ignore blur (WM_KILLFOCUS)
+/// events. A tray click hands the foreground back to the shell for a beat right
+/// after we show+focus the flyout, firing a spurious blur that would otherwise
+/// dismiss the panel the instant it opens. Real click-aways happen later.
+#[cfg(target_os = "windows")]
+const PANEL_SHOW_GRACE_MS: u64 = 700;
 
 #[derive(Serialize, Clone, Default)]
 struct Metric {
@@ -85,6 +90,9 @@ struct AppState {
     /// Epoch ms of the last panel auto-hide (on blur). Lets a tray click that
     /// merely dismissed the panel avoid immediately reopening it.
     last_hidden: AtomicU64,
+    /// Epoch ms the panel was last shown. Windows uses it to ignore the spurious
+    /// blur that follows a tray click (see [`PANEL_SHOW_GRACE_MS`]).
+    last_shown: AtomicU64,
 }
 
 // ---- IPC commands ----
@@ -123,12 +131,16 @@ fn set_settings(app: AppHandle, settings: Settings) {
 
 #[tauri::command]
 fn open_settings(app: AppHandle) {
+    // The settings window is declared in tauri.conf.json (created hidden at
+    // startup, like `main`) rather than built at runtime — a runtime-created
+    // WebView2 window comes up blank/unresponsive on some Windows setups. Just
+    // reveal it; its X hides it (see the CloseRequested handler).
     if let Some(w) = app.get_webview_window("settings") {
         let _ = w.show();
         let _ = w.set_focus();
-        return;
+        #[cfg(target_os = "windows")]
+        force_foreground(&w);
     }
-    let _ = build_settings_window(&app);
 }
 
 // ---- auto-update ----
@@ -220,43 +232,6 @@ fn open_release_page() {
     monet_core::oauth::open_in_browser(RELEASES_URL);
 }
 
-fn build_settings_window(app: &AppHandle) -> tauri::Result<()> {
-    let mut builder = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings.html".into()))
-        .title("Monet Settings")
-        .inner_size(420.0, 560.0)
-        .resizable(false)
-        .center();
-    // Give the window the Monet icon so it shows in the taskbar/dock (rather than
-    // the generic gear the dev binary gets without a matching .desktop file).
-    if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/128x128.png")) {
-        builder = builder.icon(icon)?;
-    }
-    let win = builder.build()?;
-    // Windows/WebView2: a freshly-created fixed-size window often stays on a blank,
-    // unpainted (white) compositor surface until something forces the first frame.
-    // The main panel dodges this only because its JS setSize()s on load (see
-    // index.html's resize()); the settings window is fixed-size and never resizes,
-    // so nudge it once after the webview attaches to force that first paint.
-    #[cfg(target_os = "windows")]
-    {
-        let w = win.clone();
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(150)).await;
-            let w1 = w.clone();
-            let _ = w.run_on_main_thread(move || {
-                let _ = w1.set_size(tauri::LogicalSize::new(420.0, 562.0));
-            });
-            tokio::time::sleep(Duration::from_millis(60)).await;
-            let w2 = w.clone();
-            let _ = w.run_on_main_thread(move || {
-                let _ = w2.set_size(tauri::LogicalSize::new(420.0, 560.0));
-            });
-        });
-    }
-    let _ = &win;
-    Ok(())
-}
-
 fn main() {
     let auth = Arc::new(Auth::new());
 
@@ -293,6 +268,7 @@ fn main() {
             auth,
             notify,
             last_hidden: AtomicU64::new(0),
+            last_shown: AtomicU64::new(0),
         })
         .invoke_handler(tauri::generate_handler![
             get_state,
@@ -308,6 +284,16 @@ fn main() {
             sign_out
         ])
         .on_window_event(|window, event| {
+            // Settings X hides the (reused) window instead of destroying it.
+            // Handling close here, at the Rust level, means the frame button works
+            // even when the webview is misbehaving.
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "settings" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    return;
+                }
+            }
             // Windows: the panel auto-sizes to its content after render, so
             // re-anchor the flyout flush above the taskbar on every resize.
             #[cfg(target_os = "windows")]
@@ -322,14 +308,34 @@ fn main() {
             if std::env::var_os("MONET_SHOW_ON_START").is_some() {
                 return;
             }
-            if let WindowEvent::Focused(false) = event {
+            if let WindowEvent::Focused(focused) = event {
                 if window.label() == "main" {
-                    let _ = window.hide();
-                    window
-                        .app_handle()
-                        .state::<AppState>()
-                        .last_hidden
-                        .store(now_ms(), Ordering::Relaxed);
+                    let st = window.app_handle().state::<AppState>();
+                    #[cfg(all(target_os = "windows", debug_assertions))]
+                    eprintln!(
+                        "[focus {}] main Focused({focused}) since_shown={}ms",
+                        now_ms(),
+                        now_ms().saturating_sub(st.last_shown.load(Ordering::Relaxed))
+                    );
+                    if !focused {
+                        // Windows: swallow the spurious blur a tray click fires
+                        // right after the panel opens (the shell reclaims the
+                        // foreground for a beat), or it dismisses on open. Genuine
+                        // click-aways land after the grace window.
+                        #[cfg(target_os = "windows")]
+                        {
+                            let since = now_ms().saturating_sub(st.last_shown.load(Ordering::Relaxed));
+                            if since < PANEL_SHOW_GRACE_MS {
+                                #[cfg(debug_assertions)]
+                                eprintln!("[focus {}] main blur IGNORED (grace {since}ms)", now_ms());
+                                return;
+                            }
+                        }
+                        let _ = window.hide();
+                        st.last_hidden.store(now_ms(), Ordering::Relaxed);
+                        #[cfg(all(target_os = "windows", debug_assertions))]
+                        eprintln!("[focus {}] main HIDDEN (blur)", now_ms());
+                    }
                 }
             }
         })
@@ -355,13 +361,37 @@ fn main() {
                     } = event
                     {
                         let app = tray.app_handle();
-                        // If this same click's blur just dismissed the panel, leave
-                        // it closed instead of immediately reopening it.
-                        let since = now_ms().saturating_sub(
-                            app.state::<AppState>().last_hidden.load(Ordering::Relaxed),
-                        );
-                        if since >= 250 {
-                            show_panel(app, Some(rect));
+                        // Windows: clean toggle — the foreground poll (not blur)
+                        // drives click-away dismissal, so a tray click just flips
+                        // visible/hidden.
+                        #[cfg(target_os = "windows")]
+                        {
+                            let _ = rect;
+                            let visible = app
+                                .get_webview_window("main")
+                                .and_then(|w| w.is_visible().ok())
+                                .unwrap_or(false);
+                            if visible {
+                                if let Some(w) = app.get_webview_window("main") {
+                                    let _ = w.hide();
+                                    app.state::<AppState>()
+                                        .last_hidden
+                                        .store(now_ms(), Ordering::Relaxed);
+                                }
+                            } else {
+                                show_panel(app, Some(rect));
+                            }
+                        }
+                        // macOS: if this same click's blur just dismissed the panel,
+                        // leave it closed instead of immediately reopening it.
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            let since = now_ms().saturating_sub(
+                                app.state::<AppState>().last_hidden.load(Ordering::Relaxed),
+                            );
+                            if since >= 250 {
+                                show_panel(app, Some(rect));
+                            }
                         }
                     }
                 });
@@ -555,13 +585,21 @@ fn show_panel(app: &AppHandle, near: Option<Rect>) {
         #[cfg(not(target_os = "linux"))]
         let _ = win.set_always_on_top(true);
         let _ = win.show();
+        #[cfg(not(target_os = "windows"))]
         let _ = win.set_focus();
         // Windows: a tray-launched window doesn't reliably become the foreground
-        // window, so it loses focus spuriously (hides too soon) or — with blur
-        // off — never dismisses. Force it to the foreground so it's genuinely
-        // focused and only closes on a real click-away.
+        // window. Activate it (force_foreground), THEN focus the webview so the
+        // keyboard Esc handler works, record the show time (for the blur grace),
+        // and start the foreground-poll that dismisses it on click-away.
         #[cfg(target_os = "windows")]
-        force_foreground(&win);
+        {
+            force_foreground(&win);
+            let _ = win.set_focus();
+            app.state::<AppState>().last_shown.store(now_ms(), Ordering::Relaxed);
+            spawn_dismiss_poll(app);
+            #[cfg(debug_assertions)]
+            eprintln!("[focus {}] show_panel: shown + foreground + focus", now_ms());
+        }
         // Non-Windows: on GNOME the closing tray menu can leave the panel
         // shown-but-unfocused, so re-assert focus once the grab has released.
         #[cfg(not(target_os = "windows"))]
@@ -727,7 +765,6 @@ fn position_windows_flyout(win: &tauri::WebviewWindow) {
 #[cfg(target_os = "windows")]
 fn force_foreground(win: &tauri::WebviewWindow) {
     use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
     };
@@ -735,11 +772,12 @@ fn force_foreground(win: &tauri::WebviewWindow) {
     let hwnd = h.0 as windows_sys::Win32::Foundation::HWND;
     unsafe {
         // Windows refuses SetForegroundWindow to a background process (our tray
-        // app), so a shown flyout stays inactive: it never gets WM_KILLFOCUS on
-        // click-away (so blur-to-hide never fires) and its webview never receives
-        // keyboard focus (so the JS Escape handler is dead). Temporarily attach to
-        // the current foreground window's input thread to inherit its right to set
-        // the foreground window, focus ourselves, then detach.
+        // app), so a shown flyout stays inactive. Temporarily attach to the
+        // current foreground window's input thread to inherit its right to set the
+        // foreground window, then detach. We deliberately do NOT SetFocus the
+        // top-level frame here — that would pull keyboard focus off the WebView2
+        // child (killing the Esc handler); the caller's `set_focus()` focuses the
+        // webview afterwards.
         let fg = GetForegroundWindow();
         let fg_thread = GetWindowThreadProcessId(fg, std::ptr::null_mut());
         let our_thread = GetCurrentThreadId();
@@ -748,11 +786,55 @@ fn force_foreground(win: &tauri::WebviewWindow) {
             && AttachThreadInput(fg_thread, our_thread, 1) != 0;
         BringWindowToTop(hwnd);
         SetForegroundWindow(hwnd);
-        SetFocus(hwnd);
         if attached {
             AttachThreadInput(fg_thread, our_thread, 0);
         }
     }
+}
+
+/// Windows: is the panel the current foreground window? Used by the dismiss poll,
+/// which is more reliable than WM_KILLFOCUS (which some setups never deliver on
+/// click-away for a topmost, taskbar-skipping flyout).
+#[cfg(target_os = "windows")]
+fn panel_is_foreground(win: &tauri::WebviewWindow) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    match win.hwnd() {
+        Ok(h) => unsafe {
+            GetForegroundWindow() == h.0 as windows_sys::Win32::Foundation::HWND
+        },
+        Err(_) => false,
+    }
+}
+
+/// Windows: after showing the panel, poll the foreground window and hide the
+/// panel once focus leaves it (click-away). Independent of blur events, which are
+/// unreliable here. Stops when the panel is hidden or a newer show supersedes it.
+#[cfg(target_os = "windows")]
+fn spawn_dismiss_poll(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        // Let the tray-click foreground handoff settle before we start watching.
+        tokio::time::sleep(Duration::from_millis(PANEL_SHOW_GRACE_MS)).await;
+        let generation = app.state::<AppState>().last_shown.load(Ordering::Relaxed);
+        loop {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            let st = app.state::<AppState>();
+            if st.last_shown.load(Ordering::Relaxed) != generation {
+                break; // a newer show spawned its own poll
+            }
+            let Some(win) = app.get_webview_window("main") else { break };
+            if !win.is_visible().unwrap_or(false) {
+                break; // already hidden (Esc, tray toggle, quit)
+            }
+            if !panel_is_foreground(&win) {
+                let _ = win.hide();
+                st.last_hidden.store(now_ms(), Ordering::Relaxed);
+                #[cfg(debug_assertions)]
+                eprintln!("[focus {}] main HIDDEN (poll: focus left panel)", now_ms());
+                break;
+            }
+        }
+    });
 }
 
 // ---- settings persistence + autostart ----

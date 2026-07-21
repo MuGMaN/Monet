@@ -106,12 +106,23 @@
         <button class="acct-btn primary" id="acctBtn" style="display:none"></button>
       </section>
 
-      <footer id="ver">Monet 1.0.22 · by Eric Kaden</footer>
+      <footer id="ver">Monet 1.0.23 · by Eric Kaden</footer>
     </div>
 
     <script>
       const { invoke } = window.__TAURI__.core;
       const { listen } = window.__TAURI__.event;
+      const win = window.__TAURI__.window.getCurrentWindow();
+      const LogicalSize = window.__TAURI__.window.LogicalSize;
+
+      // Windows/WebView2 shows a blank white window until a real size change forces
+      // the first paint; size to content on load (and when it changes) to trigger it.
+      function fitWindow() {
+        requestAnimationFrame(() => {
+          const h = Math.ceil(document.body.scrollHeight);
+          win.setSize(new LogicalSize(420, h)).catch(() => {});
+        });
+      }
 
       function setAccount(st) {
         const info = document.getElementById("account");
@@ -134,6 +145,7 @@
           btn.onclick = doSignIn;
           btn.style.display = "block";
         }
+        fitWindow();
       }
 
       let authBusy = false;
@@ -163,6 +175,7 @@
         document.getElementById("autostart").checked = !!s.launch_at_login;
         try { setAccount(await invoke("get_state")); } catch (_) {}
         listen("state-updated", (e) => setAccount(e.payload));
+        fitWindow();
       }
 
       function save() {
@@ -186,6 +199,7 @@
         .catch(() => {});
 
       init();
+      fitWindow();
     </script>
   </body>
 </html>

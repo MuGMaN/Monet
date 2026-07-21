@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Monet Settings</title>
+    <style>
+      :root {
+        --bg: #1c1c1e;
+        --card: rgba(118, 118, 128, 0.16);
+        --text: #f5f5f7;
+        --secondary: #98989f;
+        --separator: rgba(120, 120, 128, 0.28);
+        --blue: #0a84ff;
+        --green: #30d158;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, system-ui, "Segoe UI", Ubuntu, sans-serif;
+        font-size: 13px;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      .wrap { padding: 20px 22px; }
+      section { margin-bottom: 22px; }
+      h2 {
+        font-size: 11px; font-weight: 600; text-transform: uppercase;
+        letter-spacing: 0.4px; color: var(--secondary); margin: 0 0 10px;
+      }
+      .opt { display: block; }
+      .opt + .opt { margin-top: 2px; }
+      .opt label { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+      .opt label:hover { background: var(--card); }
+      .opt input { accent-color: var(--blue); }
+      .opt .txt b { font-weight: 500; }
+      .opt .txt span { display: block; font-size: 12px; color: var(--secondary); margin-top: 1px; }
+      select {
+        width: 100%; padding: 8px 28px 8px 10px; border-radius: 8px;
+        background-color: var(--card); color: var(--text);
+        border: 1px solid var(--separator); font-size: 13px;
+        appearance: none; -webkit-appearance: none;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' stroke='%2398989f' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+        background-repeat: no-repeat; background-position: right 10px center;
+      }
+      select option { background: #2c2c2e; color: var(--text); }
+      .row { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; }
+      .switch { position: relative; width: 40px; height: 24px; }
+      .switch input { opacity: 0; width: 0; height: 0; }
+      .slider {
+        position: absolute; inset: 0; background: var(--card);
+        border-radius: 24px; transition: 0.2s; border: 1px solid var(--separator);
+      }
+      .slider::before {
+        content: ""; position: absolute; height: 18px; width: 18px; left: 2px; top: 2px;
+        background: #fff; border-radius: 50%; transition: 0.2s;
+      }
+      .switch input:checked + .slider { background: var(--green); border-color: var(--green); }
+      .switch input:checked + .slider::before { transform: translateX(16px); }
+      .info { padding: 10px; border-radius: 8px; background: var(--card); color: var(--secondary); font-size: 12px; }
+      .info .ok { color: var(--green); }
+      footer { color: var(--secondary); font-size: 12px; text-align: center; padding-top: 4px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <section>
+        <h2>Menu bar display</h2>
+        <div class="opt"><label><input type="radio" name="mode" value="minimal" /><div class="txt"><b>Minimal</b><span>Gauge only</span></div></label></div>
+        <div class="opt"><label><input type="radio" name="mode" value="normal" /><div class="txt"><b>Normal</b><span>Gauge + percentage + time</span></div></label></div>
+        <div class="opt"><label><input type="radio" name="mode" value="verbose" /><div class="txt"><b>Verbose</b><span>Gauge + percentage + time (with seconds)</span></div></label></div>
+      </section>
+
+      <section>
+        <h2>Refresh interval</h2>
+        <select id="refresh">
+          <option value="10">Every 10 seconds</option>
+          <option value="30">Every 30 seconds</option>
+          <option value="60">Every minute</option>
+          <option value="180">Every 3 minutes</option>
+          <option value="300">Every 5 minutes</option>
+        </select>
+      </section>
+
+      <section>
+        <h2>Startup</h2>
+        <div class="row">
+          <span>Launch Monet at login</span>
+          <label class="switch"><input type="checkbox" id="autostart" /><span class="slider"></span></label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Account</h2>
+        <div class="info" id="account">Checking…</div>
+      </section>
+
+      <footer>Monet 0.1.0</footer>
+    </div>
+
+    <script>
+      const { invoke } = window.__TAURI__.core;
+      const { listen } = window.__TAURI__.event;
+
+      function setAccount(st) {
+        document.getElementById("account").innerHTML =
+          st && st.authenticated
+            ? '<span class="ok">&#10003; Signed in</span> — using Claude Code credentials'
+            : "Not connected — no Claude usage data available";
+      }
+
+      async function init() {
+        const s = await invoke("get_settings");
+        const r = document.querySelector(`input[name=mode][value="${s.display_mode}"]`);
+        if (r) r.checked = true;
+        document.getElementById("refresh").value = String(s.refresh_secs);
+        document.getElementById("autostart").checked = !!s.launch_at_login;
+        try { setAccount(await invoke("get_state")); } catch (_) {}
+        listen("state-updated", (e) => setAccount(e.payload));
+      }
+
+      function save() {
+        const mode = document.querySelector("input[name=mode]:checked");
+        invoke("set_settings", {
+          settings: {
+            display_mode: mode ? mode.value : "normal",
+            refresh_secs: Number(document.getElementById("refresh").value),
+            launch_at_login: document.getElementById("autostart").checked,
+          },
+        });
+      }
+
+      document.querySelectorAll('input[name=mode], #refresh, #autostart').forEach((el) =>
+        el.addEventListener("change", save)
+      );
+
+      init();
+    </script>
+  </body>
+</html>

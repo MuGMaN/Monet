@@ -1,27 +1,25 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//! Monet desktop (Tauri) — tray gauge + drop-down usage panel, driven by real
-//! Claude usage data via the shared `monet-core` crate.
+//! Monet desktop (Tauri) — tray gauge + drop-down usage panel + settings,
+//! driven by real Claude usage data via the shared `monet-core` crate.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use monet_core::{Auth, UsageMetric};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, LogicalPosition, Manager, WindowEvent,
+    AppHandle, Emitter, LogicalPosition, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 
 mod gauge;
 
 const TRAY_SIZE: u32 = 128;
-const POLL_SECS: u64 = 60;
 const PANEL_WIDTH: f64 = 360.0;
 
-/// A single metric as the panel consumes it (raw; formatting happens in JS).
 #[derive(Serialize, Clone, Default)]
 struct Metric {
     utilization: f64,
@@ -37,14 +35,11 @@ impl From<&UsageMetric> for Metric {
     }
 }
 
-/// The full state the panel renders. Serialized to the frontend via a command
-/// (on open) and a `state-updated` event (on every poll).
 #[derive(Serialize, Clone, Default)]
 struct PanelState {
     loading: bool,
     error: Option<String>,
     authenticated: bool,
-    /// Epoch millis of the last successful update (formatted in JS).
     last_updated_ms: Option<u64>,
     session: Option<Metric>,
     weekly: Option<Metric>,
@@ -52,13 +47,33 @@ struct PanelState {
     sonnet: Option<Metric>,
 }
 
+/// User preferences, persisted to `<config>/monet/settings.json`.
+#[derive(Serialize, Deserialize, Clone)]
+struct Settings {
+    /// Tray label density: "minimal" (gauge only) | "normal" (% + h:mm) | "verbose" (% + h:mm:ss).
+    display_mode: String,
+    /// Poll interval, seconds.
+    refresh_secs: u64,
+    launch_at_login: bool,
+}
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            display_mode: "normal".into(),
+            refresh_secs: 60,
+            launch_at_login: false,
+        }
+    }
+}
+
 struct AppState {
     panel: Mutex<PanelState>,
+    settings: Mutex<Settings>,
     auth: Arc<Auth>,
     notify: Arc<tokio::sync::Notify>,
 }
 
-// ---- IPC commands (called from the panel's JS) ----
+// ---- IPC commands ----
 
 #[tauri::command]
 fn get_state(state: tauri::State<AppState>) -> PanelState {
@@ -75,21 +90,64 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+fn get_settings(state: tauri::State<AppState>) -> Settings {
+    state.settings.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn set_settings(app: AppHandle, settings: Settings) {
+    {
+        let st = app.state::<AppState>();
+        *st.settings.lock().unwrap() = settings.clone();
+    }
+    save_settings(&settings);
+    apply_autostart(&app, settings.launch_at_login);
+    rerender_tray(&app); // display mode may have changed
+    app.state::<AppState>().notify.notify_one(); // refresh interval may have changed
+}
+
+#[tauri::command]
+fn open_settings(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.show();
+        let _ = w.set_focus();
+        return;
+    }
+    let _ = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
+        .title("Monet Settings")
+        .inner_size(420.0, 560.0)
+        .resizable(false)
+        .center()
+        .build();
+}
+
 fn main() {
     let auth = Arc::new(Auth::new());
     let notify = Arc::new(tokio::sync::Notify::new());
     let notify_loop = notify.clone();
+    let settings = load_settings();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .manage(AppState {
             panel: Mutex::new(PanelState::default()),
+            settings: Mutex::new(settings),
             auth,
             notify,
         })
-        .invoke_handler(tauri::generate_handler![get_state, refresh_now, quit_app])
-        // Dismiss the panel when it loses focus (popover behavior).
+        .invoke_handler(tauri::generate_handler![
+            get_state,
+            refresh_now,
+            quit_app,
+            get_settings,
+            set_settings,
+            open_settings
+        ])
         .on_window_event(|window, event| {
-            // Test hook: keep the panel pinned open so it can be screenshotted.
             if std::env::var_os("MONET_SHOW_ON_START").is_some() {
                 return;
             }
@@ -100,14 +158,11 @@ fn main() {
             }
         })
         .setup(move |app| {
-            // On Linux/GNOME the AppIndicator REQUIRES a menu — both to render the
-            // icon + label at all, and because the desktop shows the menu on click
-            // (Tauri never receives Linux tray-click events). macOS/Windows also get
-            // direct click-to-toggle via on_tray_icon_event below.
             let open = MenuItem::with_id(app, "show", "Open Monet", true, None::<&str>)?;
+            let settings_i = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Monet", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &sep, &quit])?;
+            let menu = Menu::with_items(app, &[&open, &settings_i, &sep, &quit])?;
 
             let (rgba, w, h) = gauge::render(0.0, TRAY_SIZE);
             TrayIconBuilder::with_id("monet")
@@ -118,6 +173,7 @@ fn main() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_panel(app),
+                    "settings" => open_settings(app.clone()),
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -133,21 +189,29 @@ fn main() {
                 })
                 .build(app)?;
 
-            // Poll loop: immediate first tick, then every POLL_SECS or on demand.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {
                     poll_and_update(&handle).await;
+                    let secs = handle
+                        .state::<AppState>()
+                        .settings
+                        .lock()
+                        .unwrap()
+                        .refresh_secs
+                        .max(5);
                     tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_secs(POLL_SECS)) => {}
+                        _ = tokio::time::sleep(Duration::from_secs(secs)) => {}
                         _ = notify_loop.notified() => {}
                     }
                 }
             });
 
-            // Test hook: open the panel on launch for screenshotting.
             if std::env::var_os("MONET_SHOW_ON_START").is_some() {
                 show_panel(app.handle());
+            }
+            if std::env::var_os("MONET_SHOW_SETTINGS").is_some() {
+                open_settings(app.handle().clone());
             }
 
             Ok(())
@@ -156,7 +220,6 @@ fn main() {
         .expect("error while running Monet");
 }
 
-/// One poll: fetch usage, update shared state + tray, and notify the panel.
 async fn poll_and_update(app: &AppHandle) {
     {
         let st = app.state::<AppState>();
@@ -167,7 +230,8 @@ async fn poll_and_update(app: &AppHandle) {
     let auth = app.state::<AppState>().auth.clone();
     let result = auth.usage().await;
 
-    let mut tray: Option<(f64, String)> = None;
+    let mode = app.state::<AppState>().settings.lock().unwrap().display_mode.clone();
+    let mut tray: Option<(f64, Option<String>)> = None;
     {
         let st = app.state::<AppState>();
         let mut p = st.panel.lock().unwrap();
@@ -175,7 +239,7 @@ async fn poll_and_update(app: &AppHandle) {
         match result {
             Ok(u) => {
                 if let Some(m) = &u.five_hour {
-                    tray = Some((m.utilization, tray_label(m)));
+                    tray = Some((m.utilization, tray_label(m.utilization, m.resets_at.as_deref(), &mode)));
                 }
                 p.error = None;
                 p.authenticated = true;
@@ -202,26 +266,51 @@ async fn poll_and_update(app: &AppHandle) {
     emit_state(app);
 }
 
-/// "48% 2:36" from a metric.
-fn tray_label(m: &UsageMetric) -> String {
-    let pct = m.utilization;
-    match m.time_until_reset() {
-        Some(d) => {
-            let s = d.num_seconds().max(0);
-            format!("{pct:.0}% {}:{:02}", s / 3600, (s % 3600) / 60)
-        }
-        None => format!("{pct:.0}%"),
+/// Re-render the tray from cached state (after a display-mode change) without re-fetching.
+fn rerender_tray(app: &AppHandle) {
+    let st = app.state::<AppState>();
+    let mode = st.settings.lock().unwrap().display_mode.clone();
+    let session = st.panel.lock().unwrap().session.clone();
+    if let Some(m) = session {
+        let label = tray_label(m.utilization, m.resets_at.as_deref(), &mode);
+        update_tray(app, m.utilization, label);
     }
 }
 
-fn update_tray(app: &AppHandle, pct: f64, label: String) {
+/// Format the tray label per display mode. `None` = no text (gauge icon only).
+fn tray_label(utilization: f64, resets_at: Option<&str>, mode: &str) -> Option<String> {
+    if mode == "minimal" {
+        return None;
+    }
+    let remaining = resets_at
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| (dt.with_timezone(&chrono::Utc) - chrono::Utc::now()).num_seconds().max(0));
+    match remaining {
+        Some(secs) => {
+            let (h, mn, s) = (secs / 3600, (secs % 3600) / 60, secs % 60);
+            let t = if mode == "verbose" {
+                format!("{h}:{mn:02}:{s:02}")
+            } else {
+                format!("{h}:{mn:02}")
+            };
+            Some(format!("{utilization:.0}% {t}"))
+        }
+        None => Some(format!("{utilization:.0}%")),
+    }
+}
+
+fn update_tray(app: &AppHandle, pct: f64, label: Option<String>) {
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
         if let Some(tray) = app.tray_by_id("monet") {
             let (rgba, w, h) = gauge::render(pct, TRAY_SIZE);
             let _ = tray.set_icon(Some(Image::new_owned(rgba, w, h)));
-            let _ = tray.set_title(Some(&label));
-            let _ = tray.set_tooltip(Some(&format!("Monet — {label}")));
+            let _ = tray.set_title(label.as_deref());
+            let tip = match &label {
+                Some(l) => format!("Monet — {l}"),
+                None => format!("Monet — {pct:.0}%"),
+            };
+            let _ = tray.set_tooltip(Some(&tip));
         }
     });
 }
@@ -242,7 +331,6 @@ fn emit_state(app: &AppHandle) {
 }
 
 /// Show the panel window, positioned top-right near the tray, and refresh it.
-/// Closing is handled by the panel itself (× / Escape / click-away).
 fn show_panel(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         if let Ok(Some(monitor)) = win.primary_monitor() {
@@ -257,8 +345,7 @@ fn show_panel(app: &AppHandle) {
     }
 }
 
-/// Toggle the panel (used by left-click on macOS/Windows, where the tray icon
-/// sends click events; on Linux the "Open Monet" menu item calls `show_panel`).
+/// Toggle the panel (left-click on macOS/Windows; Linux uses the menu).
 fn toggle_panel(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         if win.is_visible().unwrap_or(false) {
@@ -267,6 +354,36 @@ fn toggle_panel(app: &AppHandle) {
         }
     }
     show_panel(app);
+}
+
+// ---- settings persistence + autostart ----
+
+fn settings_path() -> Option<std::path::PathBuf> {
+    dirs::config_dir().map(|c| c.join("monet").join("settings.json"))
+}
+
+fn load_settings() -> Settings {
+    settings_path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn save_settings(s: &Settings) {
+    if let Some(p) = settings_path() {
+        if let Some(parent) = p.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(json) = serde_json::to_vec_pretty(s) {
+            let _ = std::fs::write(p, json);
+        }
+    }
+}
+
+fn apply_autostart(app: &AppHandle, enable: bool) {
+    use tauri_plugin_autostart::ManagerExt;
+    let mgr = app.autolaunch();
+    let _ = if enable { mgr.enable() } else { mgr.disable() };
 }
 
 fn now_ms() -> u64 {

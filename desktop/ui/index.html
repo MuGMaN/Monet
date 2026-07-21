@@ -95,7 +95,7 @@
       <div class="err" id="errline" style="display:none"></div>
 
       <div class="actions">
-        <button class="chip" id="settingsBtn" title="Settings (coming soon)">&#9881; Settings</button>
+        <button class="chip" id="settingsBtn" title="Settings">&#9881; Settings</button>
         <button class="chip" id="quitBtn">Quit</button>
       </div>
     </div>
@@ -211,6 +211,7 @@
       document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel(); });
       $("refreshBtn").onclick = () => invoke("refresh_now");
       $("quitBtn").onclick = () => invoke("quit_app");
+      $("settingsBtn").onclick = () => { closePanel(); invoke("open_settings"); };
       document.addEventListener("click", (e) => {
         if (e.target && e.target.id === "learn") {
           e.preventDefault();

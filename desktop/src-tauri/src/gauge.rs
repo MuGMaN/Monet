@@ -6,8 +6,16 @@
 
 use resvg::{tiny_skia, usvg};
 
-/// Render the gauge for `pct` (0..=100) at `size`x`size` px, returning
-/// `(rgba_bytes, width, height)` suitable for `tauri::image::Image`.
+/// Transparent gap added to the right of the gauge (as a fraction of `size`) so
+/// the tray label (percentage + time) doesn't butt right up against the ring.
+/// macOS and Linux draw the title immediately after the icon, so the spacing has
+/// to live in the image itself.
+const RIGHT_PAD_FRAC: f64 = 0.22;
+
+/// Render the gauge for `pct` (0..=100) at `size`x`size` px (plus a transparent
+/// right margin), returning `(rgba_bytes, width, height)` suitable for
+/// `tauri::image::Image`. The gauge stays square/left-aligned; only the canvas
+/// widens.
 pub fn render(pct: f64, size: u32) -> (Vec<u8>, u32, u32) {
     let clamped = pct.clamp(0.0, 100.0);
     let color = if clamped >= 90.0 {
@@ -39,8 +47,11 @@ pub fn render(pct: f64, size: u32) -> (Vec<u8>, u32, u32) {
     opt.fontdb_mut().load_system_fonts();
     let tree = usvg::Tree::from_str(&svg, &opt).expect("gauge svg is valid");
 
-    let mut pixmap = tiny_skia::Pixmap::new(size, size).expect("pixmap alloc");
+    // Render the (square) gauge into the left of a wider canvas; the extra width
+    // on the right is transparent and becomes the gap before the label.
+    let width = size + (size as f64 * RIGHT_PAD_FRAC) as u32;
+    let mut pixmap = tiny_skia::Pixmap::new(width, size).expect("pixmap alloc");
     resvg::render(&tree, tiny_skia::Transform::identity(), &mut pixmap.as_mut());
 
-    (pixmap.take(), size, size)
+    (pixmap.take(), width, size)
 }

@@ -3,6 +3,7 @@
 //! Monet desktop (Tauri) — tray gauge + drop-down usage panel + settings,
 //! driven by real Claude usage data via the shared `monet-core` crate.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -10,10 +11,14 @@ use monet_core::{Auth, UsageMetric};
 use serde::{Deserialize, Serialize};
 use tauri::{
     image::Image,
-    menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, LogicalPosition, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    AppHandle, Emitter, LogicalPosition, Manager, Rect, WebviewUrl, WebviewWindowBuilder,
+    WindowEvent,
 };
+// The tray menu (and its item types) is Linux-only — macOS/Windows open the
+// panel directly on click.
+#[cfg(target_os = "linux")]
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri_plugin_updater::UpdaterExt;
 
 mod gauge;
@@ -77,6 +82,9 @@ struct AppState {
     settings: Mutex<Settings>,
     auth: Arc<Auth>,
     notify: Arc<tokio::sync::Notify>,
+    /// Epoch ms of the last panel auto-hide (on blur). Lets a tray click that
+    /// merely dismissed the panel avoid immediately reopening it.
+    last_hidden: AtomicU64,
 }
 
 // ---- IPC commands ----
@@ -241,6 +249,7 @@ fn main() {
             settings: Mutex::new(settings),
             auth,
             notify,
+            last_hidden: AtomicU64::new(0),
         })
         .invoke_handler(tauri::generate_handler![
             get_state,
@@ -262,6 +271,11 @@ fn main() {
             if let WindowEvent::Focused(false) = event {
                 if window.label() == "main" {
                     let _ = window.hide();
+                    window
+                        .app_handle()
+                        .state::<AppState>()
+                        .last_hidden
+                        .store(now_ms(), Ordering::Relaxed);
                 }
             }
         })
@@ -271,36 +285,54 @@ fn main() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-            let open = MenuItem::with_id(app, "show", "Open Monet", true, None::<&str>)?;
-            let settings_i = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
-            let sep = PredefinedMenuItem::separator(app)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit Monet", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &settings_i, &sep, &quit])?;
-
             let (rgba, w, h) = gauge::render(0.0, TRAY_SIZE);
-            TrayIconBuilder::with_id("monet")
+            let tray = TrayIconBuilder::with_id("monet")
                 .icon(Image::new_owned(rgba, w, h))
                 .title("Monet")
                 .tooltip("Monet — loading…")
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => show_panel(app),
-                    "settings" => open_settings(app.clone()),
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
                 .on_tray_icon_event(|tray, event| {
+                    // macOS/Windows: left-click opens the panel right under the icon.
+                    // (Linux uses the menu below — AppIndicator can't do click-to-open.)
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
+                        rect,
                         ..
                     } = event
                     {
-                        toggle_panel(tray.app_handle());
+                        let app = tray.app_handle();
+                        // If this same click's blur just dismissed the panel, leave
+                        // it closed instead of immediately reopening it.
+                        let since = now_ms().saturating_sub(
+                            app.state::<AppState>().last_hidden.load(Ordering::Relaxed),
+                        );
+                        if since >= 250 {
+                            show_panel(app, Some(rect));
+                        }
                     }
-                })
-                .build(app)?;
+                });
+
+            // Linux (AppIndicator) can't open a window on click and needs a menu to
+            // render the icon+label at all, so it keeps the menu. macOS/Windows open
+            // the panel directly — Settings and Quit live inside the panel.
+            #[cfg(target_os = "linux")]
+            let tray = {
+                let open = MenuItem::with_id(app, "show", "Open Monet", true, None::<&str>)?;
+                let settings_i = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
+                let sep = PredefinedMenuItem::separator(app)?;
+                let quit = MenuItem::with_id(app, "quit", "Quit Monet", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&open, &settings_i, &sep, &quit])?;
+                tray.menu(&menu)
+                    .show_menu_on_left_click(true)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "show" => show_panel(app, None),
+                        "settings" => open_settings(app.clone()),
+                        "quit" => app.exit(0),
+                        _ => {}
+                    })
+            };
+
+            tray.build(app)?;
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -321,7 +353,7 @@ fn main() {
             });
 
             if std::env::var_os("MONET_SHOW_ON_START").is_some() {
-                show_panel(app.handle());
+                show_panel(app.handle(), None);
             }
             if std::env::var_os("MONET_SHOW_SETTINGS").is_some() {
                 open_settings(app.handle().clone());
@@ -445,21 +477,15 @@ fn emit_state(app: &AppHandle) {
     let _ = app.emit("state-updated", payload);
 }
 
-/// Show the panel window, positioned top-right near the tray, and refresh it.
-fn show_panel(app: &AppHandle) {
+/// Show the panel window and refresh it. `near` is the tray icon's screen rect
+/// (from a macOS/Windows click) so the panel drops directly under the icon on the
+/// display that holds it; without it (Linux menu / test hook) it falls back to the
+/// primary display's top-right.
+fn show_panel(app: &AppHandle, near: Option<Rect>) {
     if let Some(win) = app.get_webview_window("main") {
-        if let Ok(Some(monitor)) = win.primary_monitor() {
-            let scale = monitor.scale_factor();
-            let logical_w = monitor.size().width as f64 / scale;
-            let x = (logical_w - PANEL_WIDTH - 8.0).max(8.0);
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[monet] panel pos: monitor {}x{} scale {} -> logical_w={logical_w} x={x}",
-                monitor.size().width,
-                monitor.size().height,
-                scale
-            );
-            let _ = win.set_position(LogicalPosition::new(x, 36.0));
+        match near {
+            Some(rect) => position_under_icon(&win, rect),
+            None => position_top_right(&win),
         }
         // macOS: as a menu-bar agent the popover must float above other apps'
         // windows — an Accessory app won't bring it forward on its own.
@@ -484,15 +510,107 @@ fn show_panel(app: &AppHandle) {
     }
 }
 
-/// Toggle the panel (left-click on macOS/Windows; Linux uses the menu).
-fn toggle_panel(app: &AppHandle) {
-    if let Some(win) = app.get_webview_window("main") {
-        if win.is_visible().unwrap_or(false) {
-            let _ = win.hide();
-            return;
+/// Drop the panel directly under the tray icon, on whatever display holds it,
+/// clamped to that display so it stays fully on-screen.
+/// One monitor's geometry as Tauri reports it on macOS: origin in **points**,
+/// size in **physical px**, plus the scale factor. (This mixed convention is
+/// exactly what `Monitor::position()`/`size()`/`scale_factor()` return.)
+struct MonitorGeom {
+    x: f64,
+    y: f64,
+    w_phys: f64,
+    h_phys: f64,
+    scale: f64,
+}
+
+/// Compute the panel's top-left in **global points** so it sits centered just
+/// under a tray icon, given the icon's raw rect — which macOS reports as
+/// `global_points × the icon display's scale` — and every monitor's geometry.
+///
+/// Works for any arrangement (any count, resolution, scale, side-by-side,
+/// stacked, or displays at negative coordinates): recover the icon's global
+/// points on each candidate display by dividing by that display's scale, keep
+/// the candidates whose points rect actually contains the icon, and break ties
+/// (overlapping scaled ranges on mixed-DPI setups) by whichever scale yields the
+/// most menu-bar-like icon height. Returns `None` if the icon can't be localized.
+fn panel_origin_points(
+    rect_x: f64,
+    rect_y: f64,
+    rect_w: f64,
+    rect_h: f64,
+    panel_w: f64,
+    monitors: &[MonitorGeom],
+) -> Option<(f64, f64)> {
+    let (m, gx, gy) = monitors
+        .iter()
+        .filter_map(|m| {
+            let gx = rect_x / m.scale;
+            let gy = rect_y / m.scale;
+            let mw = m.w_phys / m.scale;
+            let mh = m.h_phys / m.scale;
+            let inside = gx >= m.x && gx <= m.x + mw && gy >= m.y && gy <= m.y + mh;
+            inside.then_some((m, gx, gy))
+        })
+        .min_by(|a, b| {
+            // Prefer the display whose menu bar (top edge) the icon sits on — this
+            // disambiguates vertically stacked displays that share an edge — then
+            // the scale that yields the most menu-bar-like icon height, which
+            // disambiguates overlapping scaled ranges on side-by-side mixed-DPI.
+            let score = |c: &(&MonitorGeom, f64, f64)| {
+                let (m, _gx, gy) = *c;
+                ((gy - m.y).abs(), (rect_h / m.scale - 24.0).abs())
+            };
+            let (ay, ah) = score(a);
+            let (by, bh) = score(b);
+            ay.partial_cmp(&by)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(ah.partial_cmp(&bh).unwrap_or(std::cmp::Ordering::Equal))
+        })?;
+
+    let iw = rect_w / m.scale;
+    let ih = rect_h / m.scale;
+    let mw = m.w_phys / m.scale;
+    let x = gx + iw / 2.0 - panel_w / 2.0; // centered under the icon
+    let y = gy + ih + 4.0; // just below it
+    let min_x = m.x + 4.0;
+    let max_x = (m.x + mw - panel_w - 4.0).max(min_x);
+    Some((x.clamp(min_x, max_x), y))
+}
+
+fn position_under_icon(win: &tauri::WebviewWindow, rect: Rect) {
+    let rp = rect.position.to_physical::<f64>(1.0);
+    let rs = rect.size.to_physical::<f64>(1.0);
+    let monitors: Vec<MonitorGeom> = win
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| MonitorGeom {
+            x: m.position().x as f64,
+            y: m.position().y as f64,
+            w_phys: m.size().width as f64,
+            h_phys: m.size().height as f64,
+            scale: m.scale_factor(),
+        })
+        .collect();
+
+    match panel_origin_points(rp.x, rp.y, rs.width, rs.height, PANEL_WIDTH, &monitors) {
+        Some((x, y)) => {
+            #[cfg(debug_assertions)]
+            eprintln!("[monet] panel logical ({x:.0},{y:.0})");
+            let _ = win.set_position(LogicalPosition::new(x, y));
         }
+        None => position_top_right(win), // couldn't localize the icon — safe fallback
     }
-    show_panel(app);
+}
+
+/// Fallback position (Linux menu / test hook): primary display, top-right.
+fn position_top_right(win: &tauri::WebviewWindow) {
+    if let Ok(Some(monitor)) = win.primary_monitor() {
+        let scale = monitor.scale_factor();
+        let logical_w = monitor.size().width as f64 / scale;
+        let x = (logical_w - PANEL_WIDTH - 8.0).max(8.0);
+        let _ = win.set_position(LogicalPosition::new(x, 36.0));
+    }
 }
 
 // ---- settings persistence + autostart ----
@@ -530,4 +648,86 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{panel_origin_points, MonitorGeom};
+
+    const PANEL: f64 = 360.0;
+
+    fn geom(x: f64, y: f64, w_phys: f64, h_phys: f64, scale: f64) -> MonitorGeom {
+        MonitorGeom { x, y, w_phys, h_phys, scale }
+    }
+
+    /// A tray rect the way macOS reports it: global points × the icon display's
+    /// scale, with a ~24pt-tall menu-bar icon `w_pts` wide sitting at the top.
+    fn rect_for(icon_pts_x: f64, icon_pts_y: f64, w_pts: f64, scale: f64) -> (f64, f64, f64, f64) {
+        (icon_pts_x * scale, icon_pts_y * scale, w_pts * scale, 24.0 * scale)
+    }
+
+    fn assert_in(x: f64, lo: f64, hi: f64, msg: &str) {
+        assert!(x >= lo && x <= hi, "{msg}: x={x} not in [{lo},{hi}]");
+    }
+
+    // The user's actual setup: built-in retina (points 0..1512, scale 2) with a
+    // 1080p external to the right (points 1512..3432, scale 1).
+    #[test]
+    fn builtin_plus_external_to_right_mixed_dpi() {
+        let mons = vec![geom(0., 0., 3024., 1964., 2.), geom(1512., 0., 1920., 1080., 1.)];
+        // icon near the right of the BUILT-IN menu bar
+        let (rx, ry, rw, rh) = rect_for(1231., 0., 100., 2.);
+        let (x, y) = panel_origin_points(rx, ry, rw, rh, PANEL, &mons).unwrap();
+        assert_in(x, 0., 1512. - PANEL, "built-in");
+        assert!(y > 0. && y < 60.);
+        // icon near the right of the EXTERNAL menu bar
+        let (rx, ry, rw, rh) = rect_for(3149., 0., 100., 1.);
+        let (x, _) = panel_origin_points(rx, ry, rw, rh, PANEL, &mons).unwrap();
+        assert_in(x, 1512., 3432. - PANEL, "external");
+    }
+
+    #[test]
+    fn single_retina_monitor() {
+        let mons = vec![geom(0., 0., 2560., 1600., 2.)]; // points 0..1280
+        let (rx, ry, rw, rh) = rect_for(1000., 0., 90., 2.);
+        let (x, _) = panel_origin_points(rx, ry, rw, rh, PANEL, &mons).unwrap();
+        assert_in(x, 0., 1280. - PANEL, "single");
+    }
+
+    #[test]
+    fn vertically_stacked_shares_edge() {
+        // top (points y 0..900) over bottom (y 900..1800), both 1440 wide scale 1
+        let mons = vec![geom(0., 0., 1440., 900., 1.), geom(0., 900., 1440., 900., 1.)];
+        // icon on the BOTTOM monitor's menu bar (its top edge, y=900)
+        let (rx, ry, rw, rh) = rect_for(700., 900., 100., 1.);
+        let (x, y) = panel_origin_points(rx, ry, rw, rh, PANEL, &mons).unwrap();
+        assert_in(x, 0., 1440. - PANEL, "stacked-x");
+        assert!(y >= 900. && y < 960., "should drop below the bottom bar, got {y}");
+    }
+
+    #[test]
+    fn monitor_to_the_left_negative_coords() {
+        // external at points x -1920..0 (scale 1), built-in at 0..1512 (scale 2)
+        let mons = vec![geom(-1920., 0., 1920., 1080., 1.), geom(0., 0., 3024., 1964., 2.)];
+        let (rx, ry, rw, rh) = rect_for(-100., 0., 100., 1.);
+        let (x, _) = panel_origin_points(rx, ry, rw, rh, PANEL, &mons).unwrap();
+        assert_in(x, -1920., -PANEL, "left-monitor");
+    }
+
+    #[test]
+    fn three_monitors_mixed_dpi_center_retina() {
+        let mons = vec![
+            geom(-1920., 0., 1920., 1080., 1.), // left
+            geom(0., 0., 3024., 1964., 2.),     // center retina
+            geom(1512., 0., 1920., 1080., 1.),  // right
+        ];
+        let (rx, ry, rw, rh) = rect_for(800., 0., 100., 2.); // icon on center
+        let (x, _) = panel_origin_points(rx, ry, rw, rh, PANEL, &mons).unwrap();
+        assert_in(x, 0., 1512. - PANEL, "center");
+    }
+
+    #[test]
+    fn no_monitors_returns_none() {
+        assert!(panel_origin_points(100., 0., 100., 24., PANEL, &[]).is_none());
+    }
 }

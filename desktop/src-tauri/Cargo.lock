@@ -2068,7 +2068,7 @@ dependencies = [
 
 [[package]]
 name = "monet-desktop"
-version = "1.0.19"
+version = "1.0.20"
 dependencies = [
  "chrono",
  "dirs 5.0.1",
